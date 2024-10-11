@@ -32,10 +32,10 @@ function multiply4(a, b) {
     ];
 }
 
-let wSorted = null
-let wPacked = null
+let handleSorted = null
+let handlePacked = null
 
-{
+
     let wbuffer;
     let wvertexCount = 0;
     let wviewProj;
@@ -88,43 +88,45 @@ let wPacked = null
     // pack buffer data into texture
     function generateTexture() {
         if (!wbuffer) return;
-        const f_buffer = new Float32Array(wbuffer);
-        const u_buffer = new Uint8Array(wbuffer);
+        const buffer_f32 = new Float32Array(wbuffer);
+        const buffer_u8 = new Uint8Array(wbuffer);
+        const buffer_u32 = new Uint32Array(wbuffer);
 
         var texwidth = 1024 * 2; // Set to your desired width
         var texheight = Math.ceil((2 * wvertexCount) / texwidth); // Set to your desired height
-        var texdata = new Uint32Array(texwidth * texheight * 4); // 4 components per pixel (RGBA)
-        var texdata_c = new Uint8Array(texdata.buffer);
-        var texdata_f = new Float32Array(texdata.buffer);
+        console.log(texwidth, texheight, texwidth*texheight*4 / 8, buffer_u32.length / 8, texwidth*texheight*4 / 8 - buffer_u32.length / 8)
+        var texdata_u32 = new Uint32Array(texwidth * texheight * 4); // 4 components per pixel (RGBA) => RGBA32UI (4x32b)
+        var texdata_u8 = new Uint8Array(texdata_u32.buffer);
+        var texdata_f32 = new Float32Array(texdata_u32.buffer);
 
         // Here we convert from a .splat file buffer into a texture
         // With a little bit more foresight perhaps this texture file
         // should have been the native format as it'd be very easy to
         // load it into webgl.
         for (let i = 0; i < wvertexCount; i++) {
-            // x, y, z - Float32 - 3x4Bytes
-            texdata_f[8 * i + 0] = f_buffer[8 * i + 0];
-            texdata_f[8 * i + 1] = f_buffer[8 * i + 1];
-            texdata_f[8 * i + 2] = f_buffer[8 * i + 2];
+            // x, y, z - Float32 - 3x4Bytes <=> 3x32b
+            texdata_f32[8 * i + 0] = buffer_f32[8 * i + 0];
+            texdata_f32[8 * i + 1] = buffer_f32[8 * i + 1];
+            texdata_f32[8 * i + 2] = buffer_f32[8 * i + 2];
 
-            // r, g, b, a - uint8 - 4*1Byte
+            // r, g, b, a - uint8 - 4*1B <=> 4x8b
             // texdata_c[4 * (8 * i + 7) + 0] = u_buffer[32 * i + 24 + 0];
-            texdata_c[32 * i + 28 + 0] = u_buffer[32 * i + 24 + 0];
-            texdata_c[32 * i + 28 + 1] = u_buffer[32 * i + 24 + 1];
-            texdata_c[32 * i + 28 + 2] = u_buffer[32 * i + 24 + 2];
-            texdata_c[32 * i + 28 + 3] = u_buffer[32 * i + 24 + 3];
+            texdata_u8[32 * i + 28 + 0] = buffer_u8[32 * i + 24 + 0];
+            texdata_u8[32 * i + 28 + 1] = buffer_u8[32 * i + 24 + 1];
+            texdata_u8[32 * i + 28 + 2] = buffer_u8[32 * i + 24 + 2];
+            texdata_u8[32 * i + 28 + 3] = buffer_u8[32 * i + 24 + 3];
 
             // quaternions
             let scale = [
-                f_buffer[8 * i + 3 + 0],
-                f_buffer[8 * i + 3 + 1],
-                f_buffer[8 * i + 3 + 2],
+                buffer_f32[8 * i + 3 + 0],
+                buffer_f32[8 * i + 3 + 1],
+                buffer_f32[8 * i + 3 + 2],
             ];
             let rot = [
-                (u_buffer[32 * i + 28 + 0] - 128) / 128,
-                (u_buffer[32 * i + 28 + 1] - 128) / 128,
-                (u_buffer[32 * i + 28 + 2] - 128) / 128,
-                (u_buffer[32 * i + 28 + 3] - 128) / 128,
+                (buffer_u8[32 * i + 28 + 0] - 128) / 128,
+                (buffer_u8[32 * i + 28 + 1] - 128) / 128,
+                (buffer_u8[32 * i + 28 + 2] - 128) / 128,
+                (buffer_u8[32 * i + 28 + 3] - 128) / 128,
             ];
 
             // Compute the matrix product of S and R (M = S * R)
@@ -151,18 +153,18 @@ let wPacked = null
                 M[2] * M[2] + M[5] * M[5] + M[8] * M[8],
             ];
 
-            //uint32 - 3x
-            texdata[8 * i + 4] = packHalf2x16(4 * sigma[0], 4 * sigma[1]);
-            texdata[8 * i + 5] = packHalf2x16(4 * sigma[2], 4 * sigma[3]);
-            texdata[8 * i + 6] = packHalf2x16(4 * sigma[4], 4 * sigma[5]);
+            //uint32 - 3x4B <=>3x32b
+            texdata_u32[8 * i + 4] = packHalf2x16(4 * sigma[0], 4 * sigma[1]);
+            texdata_u32[8 * i + 5] = packHalf2x16(4 * sigma[2], 4 * sigma[3]);
+            texdata_u32[8 * i + 6] = packHalf2x16(4 * sigma[4], 4 * sigma[5]);
         }
 
-        wPacked(texdata, texwidth, texheight)
+        handlePacked(texdata_u32, texwidth, texheight)
     }
 
     function runSort(viewProj) {
         if (!wbuffer) return;
-        const f_buffer = new Float32Array(wbuffer);
+        const buffer_f32 = new Float32Array(wbuffer);
         if (lastVertexCount === wvertexCount) {
             let dot =
                 lastProj[2] * viewProj[2] +
@@ -182,9 +184,9 @@ let wPacked = null
         let sizeList = new Int32Array(wvertexCount);
         for (let i = 0; i < wvertexCount; i++) {
             let depth =
-                ((viewProj[2] * f_buffer[8 * i + 0] +
-                        viewProj[6] * f_buffer[8 * i + 1] +
-                        viewProj[10] * f_buffer[8 * i + 2]) *
+                ((viewProj[2] * buffer_f32[8 * i + 0] +
+                        viewProj[6] * buffer_f32[8 * i + 1] +
+                        viewProj[10] * buffer_f32[8 * i + 2]) *
                     4096) |
                 0;
             sizeList[i] = depth;
@@ -210,7 +212,7 @@ let wPacked = null
 
         lastProj = viewProj;
 
-        wSorted(depthIndex, wviewProj, wvertexCount)
+        handleSorted(depthIndex, wviewProj, wvertexCount)
     }
 
     const throttledSort = () => {
@@ -238,7 +240,7 @@ let wPacked = null
         wviewProj = _viewProj
         throttledSort()
     }
-}
+
 
 // language=glsl
 const vertexShaderSource = `
@@ -318,7 +320,6 @@ void main () {
     float B = exp(A) * vColor.a;
     fragColor = vec4(B * vColor.rgb, B);
 }
-
 `.trim();
 
 let worldTransform = [
@@ -426,7 +427,7 @@ async function main() {
     resize();
 
 
-    wPacked = (texdata, texwidth, texheight) => { //conversion from data to texture finished
+    handlePacked = (texdata, texwidth, texheight) => { //conversion from data to texture finished
         gl.bindTexture(gl.TEXTURE_2D, texture);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -437,7 +438,7 @@ async function main() {
         gl.bindTexture(gl.TEXTURE_2D, texture);
     }
 
-    wSorted = (depthIndex, wviewProj, wvertexCount) => {
+    handleSorted = (depthIndex, wviewProj, wvertexCount) => {
         gl.bindBuffer(gl.ARRAY_BUFFER, indexBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, depthIndex, gl.DYNAMIC_DRAW);
         vertexCount = wvertexCount
@@ -462,6 +463,7 @@ async function main() {
             gl.uniformMatrix4fv(u_view, false, viewMatrix);
             gl.clear(gl.COLOR_BUFFER_BIT);
             gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
+            // gl.drawArraysInstanced(gl.POINTS, 0, 1, vertexCount)
         } else {
             gl.clear(gl.COLOR_BUFFER_BIT);
             document.getElementById("spinner").style.display = "";
@@ -474,7 +476,7 @@ async function main() {
 
 
 
-    splatData = new Uint8Array(await req.arrayBuffer())
+    const splatData = new Uint8Array(await req.arrayBuffer())
     vertexCount = splatData.length / rowLength
     console.log(vertexCount, downsample);
     wSetData(splatData.buffer, vertexCount)
