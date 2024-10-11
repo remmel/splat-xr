@@ -32,10 +32,13 @@ function multiply4(a, b) {
     ];
 }
 
-function createWorker(self) {
-    let buffer;
-    let vertexCount = 0;
-    let viewProj;
+let wSorted = null
+let wPacked = null
+
+{
+    let wbuffer;
+    let wvertexCount = 0;
+    let wviewProj;
     // 6*4 + 4 + 4 = 8*4
     // XYZ - Position (Float32)
     // XYZ - Scale (Float32)
@@ -84,12 +87,12 @@ function createWorker(self) {
 
     // pack buffer data into texture
     function generateTexture() {
-        if (!buffer) return;
-        const f_buffer = new Float32Array(buffer);
-        const u_buffer = new Uint8Array(buffer);
+        if (!wbuffer) return;
+        const f_buffer = new Float32Array(wbuffer);
+        const u_buffer = new Uint8Array(wbuffer);
 
         var texwidth = 1024 * 2; // Set to your desired width
-        var texheight = Math.ceil((2 * vertexCount) / texwidth); // Set to your desired height
+        var texheight = Math.ceil((2 * wvertexCount) / texwidth); // Set to your desired height
         var texdata = new Uint32Array(texwidth * texheight * 4); // 4 components per pixel (RGBA)
         var texdata_c = new Uint8Array(texdata.buffer);
         var texdata_f = new Float32Array(texdata.buffer);
@@ -98,14 +101,13 @@ function createWorker(self) {
         // With a little bit more foresight perhaps this texture file
         // should have been the native format as it'd be very easy to
         // load it into webgl.
-        for (let i = 0; i < vertexCount; i++) {
+        for (let i = 0; i < wvertexCount; i++) {
             // x, y, z - Float32 - 3x4Bytes
             texdata_f[8 * i + 0] = f_buffer[8 * i + 0];
             texdata_f[8 * i + 1] = f_buffer[8 * i + 1];
             texdata_f[8 * i + 2] = f_buffer[8 * i + 2];
 
             // r, g, b, a - uint8 - 4*1Byte
-            // texdata_c[32*i+28+0] = u_buffer[32 * i + 24 + 0];
             // texdata_c[4 * (8 * i + 7) + 0] = u_buffer[32 * i + 24 + 0];
             texdata_c[32 * i + 28 + 0] = u_buffer[32 * i + 24 + 0];
             texdata_c[32 * i + 28 + 1] = u_buffer[32 * i + 24 + 1];
@@ -155,13 +157,13 @@ function createWorker(self) {
             texdata[8 * i + 6] = packHalf2x16(4 * sigma[4], 4 * sigma[5]);
         }
 
-        self.postMessage({ type: 'PACKED', texdata, texwidth, texheight }, [texdata.buffer]);
+        wPacked(texdata, texwidth, texheight)
     }
 
     function runSort(viewProj) {
-        if (!buffer) return;
-        const f_buffer = new Float32Array(buffer);
-        if (lastVertexCount === vertexCount) {
+        if (!wbuffer) return;
+        const f_buffer = new Float32Array(wbuffer);
+        if (lastVertexCount === wvertexCount) {
             let dot =
                 lastProj[2] * viewProj[2] +
                 lastProj[6] * viewProj[6] +
@@ -171,18 +173,18 @@ function createWorker(self) {
             }
         } else {
             generateTexture();
-            lastVertexCount = vertexCount;
+            lastVertexCount = wvertexCount;
         }
 
         console.time("sort");
         let maxDepth = -Infinity;
         let minDepth = Infinity;
-        let sizeList = new Int32Array(vertexCount);
-        for (let i = 0; i < vertexCount; i++) {
+        let sizeList = new Int32Array(wvertexCount);
+        for (let i = 0; i < wvertexCount; i++) {
             let depth =
                 ((viewProj[2] * f_buffer[8 * i + 0] +
-                    viewProj[6] * f_buffer[8 * i + 1] +
-                    viewProj[10] * f_buffer[8 * i + 2]) *
+                        viewProj[6] * f_buffer[8 * i + 1] +
+                        viewProj[10] * f_buffer[8 * i + 2]) *
                     4096) |
                 0;
             sizeList[i] = depth;
@@ -193,31 +195,32 @@ function createWorker(self) {
         // This is a 16 bit single-pass counting sort
         let depthInv = (256 * 256) / (maxDepth - minDepth);
         let counts0 = new Uint32Array(256 * 256);
-        for (let i = 0; i < vertexCount; i++) {
+        for (let i = 0; i < wvertexCount; i++) {
             sizeList[i] = ((sizeList[i] - minDepth) * depthInv) | 0;
             counts0[sizeList[i]]++;
         }
         let starts0 = new Uint32Array(256 * 256);
         for (let i = 1; i < 256 * 256; i++)
             starts0[i] = starts0[i - 1] + counts0[i - 1];
-        depthIndex = new Uint32Array(vertexCount);
-        for (let i = 0; i < vertexCount; i++)
+        depthIndex = new Uint32Array(wvertexCount);
+        for (let i = 0; i < wvertexCount; i++)
             depthIndex[starts0[sizeList[i]]++] = i;
 
         console.timeEnd("sort");
 
         lastProj = viewProj;
-        self.postMessage({ type: 'SORTED', depthIndex, viewProj, vertexCount }, [depthIndex.buffer]);
+
+        wSorted(depthIndex, wviewProj, wvertexCount)
     }
 
     const throttledSort = () => {
         if (!sortRunning) {
             sortRunning = true;
-            let lastView = viewProj;
+            let lastView = wviewProj;
             runSort(lastView);
             setTimeout(() => {
                 sortRunning = false;
-                if (lastView !== viewProj) {
+                if (lastView !== wviewProj) {
                     throttledSort();
                 }
             }, 0);
@@ -226,21 +229,15 @@ function createWorker(self) {
 
     let sortRunning;
 
-    self.onmessage = (e) => {
-        switch (e.data.action) {
-            case 'SETDATA':
-                buffer = e.data.buffer;
-                vertexCount = e.data.vertexCount;
-                break
-            case 'SORT':
-                viewProj = e.data.view;
-                throttledSort();
-                break
-            default:
-                console.warn("not handled", e.data)
+    function wSetData(_buffer, _vertexCount) {
+        wbuffer = _buffer
+        wvertexCount = _vertexCount
+    }
 
-        }
-    };
+    function wSort(_viewProj) {
+        wviewProj = _viewProj
+        throttledSort()
+    }
 }
 
 // language=glsl
@@ -350,15 +347,6 @@ async function main() {
 
     const downsample = 1
 
-    const worker = new Worker(
-        URL.createObjectURL(
-            new Blob(["(", createWorker.toString(), ")(self)"], {
-                type: "application/javascript",
-            }),
-        ),
-    );
-
-
     const canvas = document.getElementById("canvas");
     const fps = document.getElementById("fps");
 
@@ -437,30 +425,24 @@ async function main() {
     window.addEventListener("resize", resize);
     resize();
 
-    worker.onmessage = (e) => {
 
-        switch (e.data.type) {
-            case 'PACKED': //conversion from data to texture finished
-                const { texdata, texwidth, texheight } = e.data;
-                gl.bindTexture(gl.TEXTURE_2D, texture);
-                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, texwidth, texheight, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, texdata);
-                gl.activeTexture(gl.TEXTURE0);
-                gl.bindTexture(gl.TEXTURE_2D, texture);
-                break
-            case 'SORTED':
-                const { depthIndex, viewProj } = e.data;
-                gl.bindBuffer(gl.ARRAY_BUFFER, indexBuffer);
-                gl.bufferData(gl.ARRAY_BUFFER, depthIndex, gl.DYNAMIC_DRAW);
-                vertexCount = e.data.vertexCount;
-                break
-            default:
-                console.warn('worker result not handled', e.data)
-        }
-    };
+    wPacked = (texdata, texwidth, texheight) => { //conversion from data to texture finished
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, texwidth, texheight, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, texdata);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+    }
+
+    wSorted = (depthIndex, wviewProj, wvertexCount) => {
+        gl.bindBuffer(gl.ARRAY_BUFFER, indexBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, depthIndex, gl.DYNAMIC_DRAW);
+        vertexCount = wvertexCount
+    }
+
 
     let vertexCount = 0;
 
@@ -469,7 +451,8 @@ async function main() {
 
     const frame = (now) => {
         const viewProj = multiply4(projectionMatrix, viewMatrix);
-        worker.postMessage({ action: 'SORT', view: viewProj });
+        wSort(viewProj)
+
 
         const currentFps = 1000 / (now - lastFrame) || 0;
         avgFps = avgFps * 0.9 + currentFps * 0.1;
@@ -494,7 +477,7 @@ async function main() {
     splatData = new Uint8Array(await req.arrayBuffer())
     vertexCount = splatData.length / rowLength
     console.log(vertexCount, downsample);
-    worker.postMessage({action: 'SETDATA', buffer: splatData.buffer, vertexCount})
+    wSetData(splatData.buffer, vertexCount)
 
     frame();
 
