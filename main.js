@@ -244,7 +244,7 @@ let viewMatrix = worldTransform;
 async function main() {
 
     // const url = 'https://huggingface.co/cakewalk/splat-data/resolve/main/train.splat'
-    const url = 'dataset/train/train.splat'
+    const url = 'dataset/train.splat'
 
     const req = await fetch(url, {
         mode: "cors", // no-cors, *cors, same-origin
