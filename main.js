@@ -295,26 +295,26 @@ async function main() {
     gl.blendFuncSeparate(gl.ONE_MINUS_DST_ALPHA, gl.ONE, gl.ONE_MINUS_DST_ALPHA, gl.ONE);
     gl.blendEquationSeparate(gl.FUNC_ADD, gl.FUNC_ADD);
 
-    const u_projection = gl.getUniformLocation(program, "projection");
-    const u_viewport = gl.getUniformLocation(program, "viewport");
-    const u_focal = gl.getUniformLocation(program, "focal");
-    const u_view = gl.getUniformLocation(program, "view");
+    const u_projection = gl.getUniformLocation(program, "uProj");
+    const u_viewport = gl.getUniformLocation(program, "uViewport");
+    const u_focal = gl.getUniformLocation(program, "uFocal");
+    const u_view = gl.getUniformLocation(program, "uView");
 
     // positions
     const triangleVertices = new Float32Array([-2, -2, 2, -2, 2, 2, -2, 2]);
     const vertexBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, triangleVertices, gl.STATIC_DRAW);
-    const a_position = gl.getAttribLocation(program, "position");
-    gl.enableVertexAttribArray(a_position);
+    const a_pos = gl.getAttribLocation(program, "aPosition");
+    gl.enableVertexAttribArray(a_pos);
     gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-    gl.vertexAttribPointer(a_position, 2, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribPointer(a_pos, 2, gl.FLOAT, false, 0, 0);
 
     var texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);
 
-    var u_textureLocation = gl.getUniformLocation(program, "u_texture");
-    gl.uniform1i(u_textureLocation, 0);
+    var u_texture = gl.getUniformLocation(program, "uTexture");
+    gl.uniform1i(u_texture, 0);
 
     const indexBuffer = gl.createBuffer();
     const a_index = gl.getAttribLocation(program, "index");
