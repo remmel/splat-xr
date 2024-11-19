@@ -1,5 +1,5 @@
 // language=glsl
-export const vertexShaderSourceQuads = `
+export const vertexShaderSource = `
 #version 300 es
 precision highp float;
 precision highp int;
@@ -73,7 +73,7 @@ void main () {
 `.trim();
 
 // language=glsl
-export const fragmentShaderSourceQuads = `
+export const fragmentShaderSource = `
 #version 300 es
 precision highp float;
 

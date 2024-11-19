@@ -15,6 +15,27 @@ function getViewMatrix(camera) {
     return camToWorld;
 }
 
+export function multiply4(a, b) {
+    return [
+        b[0] * a[0] + b[1] * a[4] + b[2] * a[8] + b[3] * a[12],
+        b[0] * a[1] + b[1] * a[5] + b[2] * a[9] + b[3] * a[13],
+        b[0] * a[2] + b[1] * a[6] + b[2] * a[10] + b[3] * a[14],
+        b[0] * a[3] + b[1] * a[7] + b[2] * a[11] + b[3] * a[15],
+        b[4] * a[0] + b[5] * a[4] + b[6] * a[8] + b[7] * a[12],
+        b[4] * a[1] + b[5] * a[5] + b[6] * a[9] + b[7] * a[13],
+        b[4] * a[2] + b[5] * a[6] + b[6] * a[10] + b[7] * a[14],
+        b[4] * a[3] + b[5] * a[7] + b[6] * a[11] + b[7] * a[15],
+        b[8] * a[0] + b[9] * a[4] + b[10] * a[8] + b[11] * a[12],
+        b[8] * a[1] + b[9] * a[5] + b[10] * a[9] + b[11] * a[13],
+        b[8] * a[2] + b[9] * a[6] + b[10] * a[10] + b[11] * a[14],
+        b[8] * a[3] + b[9] * a[7] + b[10] * a[11] + b[11] * a[15],
+        b[12] * a[0] + b[13] * a[4] + b[14] * a[8] + b[15] * a[12],
+        b[12] * a[1] + b[13] * a[5] + b[14] * a[9] + b[15] * a[13],
+        b[12] * a[2] + b[13] * a[6] + b[14] * a[10] + b[15] * a[14],
+        b[12] * a[3] + b[13] * a[7] + b[14] * a[11] + b[15] * a[15],
+    ];
+}
+
 function invert4(a) {
     let b00 = a[0] * a[5] - a[1] * a[4];
     let b01 = a[0] * a[6] - a[2] * a[4];
@@ -93,4 +114,48 @@ function translate4(a, x, y, z) {
         a[2] * x + a[6] * y + a[10] * z + a[14],
         a[3] * x + a[7] * y + a[11] * z + a[15],
     ];
+}
+
+function compileShader(gl, source, type) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        const error = gl.getShaderInfoLog(shader);
+        gl.deleteShader(shader);
+        throw new Error(`Shader compilation failed: ${error}`);
+    }
+
+    return shader;
+}
+
+export function createProgram(gl, vertexShaderSource, fragmentShaderSource) {
+    let vertexShader, fragmentShader;
+
+    try {
+        vertexShader = compileShader(gl, vertexShaderSource, gl.VERTEX_SHADER);
+        fragmentShader = compileShader(gl, fragmentShaderSource, gl.FRAGMENT_SHADER);
+
+        const program = gl.createProgram();
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        gl.linkProgram(program);
+
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+            const error = gl.getProgramInfoLog(program);
+            gl.deleteProgram(program);
+            throw new Error(`Program linking failed: ${error}`);
+        }
+
+        // Clean up shaders
+        gl.deleteShader(vertexShader);
+        gl.deleteShader(fragmentShader);
+
+        return program;
+    } catch (error) {
+        if (vertexShader) gl.deleteShader(vertexShader);
+        if (fragmentShader) gl.deleteShader(fragmentShader);
+        throw error;
+    }
 }
