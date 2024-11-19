@@ -157,6 +157,21 @@ let cameras = [
 
 let camera = cameras[0];
 
+// let worldXRTransform = [ //v key
+//     0.52,0.28,-0.8,0,
+//     0.02,0.94,0.33,0,
+//     0.85,-0.2,0.49,0,
+//     0.04,-0.31,4.21,1]
+
+let worldXRTransform = [
+    -1, 0, 0, 0,
+    0, -1, 0, 0,
+    0, 0, 1, 0,
+    2, -1, 4, 1
+];
+
+
+
 function getProjectionMatrix(fx, fy, width, height) {
     const znear = 0.2;
     const zfar = 200;
@@ -294,6 +309,8 @@ function translate4(a, x, y, z) {
         a[3] * x + a[7] * y + a[11] * z + a[15],
     ];
 }
+worldXRTransform = rotate4(invert4(worldXRTransform), -90 * Math.PI / 180, 0, 1, 0);
+// worldXRTransform = rotate4(invert4(worldXRTransform), -180 * Math.PI / 180, 1, 0, 0);
 
 function createWorker(self) {
     let buffer;
@@ -652,6 +669,7 @@ function createWorker(self) {
     };
 }
 
+// language=glsl
 const vertexShaderSource = `
 #version 300 es
 precision highp float;
@@ -713,6 +731,7 @@ void main () {
 }
 `.trim();
 
+// language=glsl
 const fragmentShaderSource = `
 #version 300 es
 precision highp float;
@@ -749,6 +768,11 @@ async function main() {
         params.get("url") || "train.splat",
         "https://huggingface.co/cakewalk/splat-data/resolve/main/",
     );
+
+    let xrSession = null;
+    let xrReferenceSpace = null;
+
+
     const req = await fetch(url, {
         mode: "cors", // no-cors, *cors, same-origin
         credentials: "omit", // include, *same-origin, omit
@@ -780,6 +804,7 @@ async function main() {
     let projectionMatrix;
 
     const gl = canvas.getContext("webgl2", {
+        xrCompatible: true,
         antialias: false,
     });
 
@@ -1351,8 +1376,44 @@ async function main() {
             camid.innerText = "";
         }
         lastFrame = now;
-        requestAnimationFrame(frame);
+        if (!xrSession) {
+            requestAnimationFrame(frame);
+        }
     };
+
+    function onXRFrame(time, frame) {
+        const session = frame.session;
+        session.requestAnimationFrame(onXRFrame);
+
+        const pose = frame.getViewerPose(xrReferenceSpace);
+        if (!pose) return
+
+        const glLayer = session.renderState.baseLayer;
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, glLayer.framebuffer);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        for (const view of pose.views) {
+            const viewport = glLayer.getViewport(view);
+            gl.viewport(viewport.x * downsample, viewport.y * downsample, viewport.width * downsample, viewport.height * downsample);
+            let projectionMatrix = view.projectionMatrix;
+            gl.uniform2fv(u_viewport, new Float32Array([viewport.width, viewport.height]));
+
+            // Update projection and view matrices based on VR pose
+            gl.uniformMatrix4fv(u_projection, false, projectionMatrix);
+            gl.uniformMatrix4fv(u_view, false, view.transform.inverse.matrix);
+            gl.uniform2fv(u_focal, new Float32Array([(projectionMatrix[0] * viewport.width) / 2, -(projectionMatrix[5] * viewport.height) / 2]));
+
+            const transformedView = multiply4(view.transform.inverse.matrix, worldXRTransform);
+            gl.uniformMatrix4fv(u_view, false, transformedView);
+
+            // Render the scene
+            gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
+
+            const viewProj = multiply4(projectionMatrix, transformedView);
+            worker.postMessage({ view: viewProj });
+        }
+    }
 
     frame();
 
@@ -1442,9 +1503,42 @@ async function main() {
             buffer: splatData.buffer,
             vertexCount: Math.floor(bytesRead / rowLength),
         });
+
+    async function startXR() {
+        xrSession = await navigator.xr.requestSession('immersive-vr', {optionalFeatures: ['local-floor']})
+        xrSession.addEventListener('end', onXRSessionEnded);
+        xrReferenceSpace = await xrSession.requestReferenceSpace('local-floor');
+        await gl.makeXRCompatible();
+        xrSession.updateRenderState({
+            baseLayer: new XRWebGLLayer(xrSession, gl, {
+                // framebufferScaleFactor: 0.75,
+                fixedFoveation: 1.0,
+                // antialias: true,
+                // depth: true,
+                // ignoreDepthValues: true
+                // foveationLevel
+            })
+        });
+        xrSession.requestAnimationFrame(onXRFrame);
+    }
+
+    function onXRSessionEnded() {
+        xrSession = null;
+    }
+
+    if (navigator.xr) {
+        navigator.xr.isSessionSupported('immersive-vr').then(supported => {
+            if (supported) {
+                document.getElementById("enter-vr").disabled = false
+                document.getElementById('enter-vr').addEventListener('click', () => {
+                    startXR();
+                });
+            }
+        });
+    }
+
 }
 
-main().catch((err) => {
-    document.getElementById("spinner").style.display = "none";
-    document.getElementById("message").innerText = err.toString();
-});
+
+
+main()
