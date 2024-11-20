@@ -1,6 +1,6 @@
-import {fragmentShaderSourcePoint, vertexShaderSourcePoint} from "./shadersPoints.js";
-import {fragmentShaderSourceQuads, vertexShaderSourceQuads} from "./shadersQuads.js";
-import {createProgram, multiply4} from "./utils.js";
+// import {fragmentShaderSourcePoint as fragmentShaderSource, vertexShaderSourcePoint as vertexShaderSource} from "./shadersPoints.js"; //pointcloud
+import {fragmentShaderSource, vertexShaderSource} from "./shadersQuads.js";
+import {createProgram, invert4, multiply4, rotate4} from "./utils.js";
 
 let camera = {fy: 1150, fx: 1150}
 
@@ -15,13 +15,10 @@ function getProjectionMatrix(fx, fy, width, height) {
     ].flat();
 }
 
-let handleSorted = null
-let handlePacked = null
+async function main() {
 
 
     let wbuffer;
-    let wvertexCount = 0;
-    let wviewProj;
     // 6*4 + 4 + 4 = 8*4
     // XYZ - Position (Float32)
     // XYZ - Scale (Float32)
@@ -76,7 +73,7 @@ let handlePacked = null
         const buffer_u32 = new Uint32Array(wbuffer);
 
         var texwidth = 1024 * 2; // Set to your desired width
-        var texheight = Math.ceil((2 * wvertexCount) / texwidth); // Set to your desired height
+        var texheight = Math.ceil((2 * vertexCount) / texwidth); // Set to your desired height
         console.log("w", texwidth, "h", texheight, "texture units", texwidth*texheight*4 / 8, "nb splats", buffer_u32.length / 8, "lost", texwidth*texheight*4 / 8 - buffer_u32.length / 8)
         var texdata_u32 = new Uint32Array(texwidth * texheight * 4); // 4 components per pixel (RGBA) => RGBA32UI (4x32b)
         var texdata_u8 = new Uint8Array(texdata_u32.buffer);
@@ -86,7 +83,7 @@ let handlePacked = null
         // With a little bit more foresight perhaps this texture file
         // should have been the native format as it'd be very easy to
         // load it into webgl.
-        for (let i = 0; i < wvertexCount; i++) {
+        for (let i = 0; i < vertexCount; i++) {
             // x, y, z - Float32 - 3x4Bytes <=> 3x32b
             texdata_f32[8 * i + 0] = buffer_f32[8 * i + 0];
             texdata_f32[8 * i + 1] = buffer_f32[8 * i + 1];
@@ -142,30 +139,30 @@ let handlePacked = null
             texdata_u32[8 * i + 6] = packHalf2x16(4 * sigma[4], 4 * sigma[5]);
         }
 
-        handlePacked(texdata_u32, texwidth, texheight)
+        setGpuTexturedata(texdata_u32, texwidth, texheight)
     }
 
     function runSort(viewProj) {
         if (!wbuffer) return;
         const buffer_f32 = new Float32Array(wbuffer);
-        if (lastVertexCount === wvertexCount) {
+        if (lastVertexCount === vertexCount) {
             let dot =
                 lastProj[2] * viewProj[2] +
                 lastProj[6] * viewProj[6] +
                 lastProj[10] * viewProj[10];
-            if (Math.abs(dot - 1) < 0.01) {
+            if (Math.abs(dot - 1) < 0.1) {
                 return;
             }
         } else {
             generateTexture();
-            lastVertexCount = wvertexCount;
+            lastVertexCount = vertexCount;
         }
 
         console.time("sort");
         let maxDepth = -Infinity;
         let minDepth = Infinity;
-        let sizeList = new Int32Array(wvertexCount);
-        for (let i = 0; i < wvertexCount; i++) {
+        let sizeList = new Int32Array(vertexCount);
+        for (let i = 0; i < vertexCount; i++) {
             let depth =
                 ((viewProj[2] * buffer_f32[8 * i + 0] +
                         viewProj[6] * buffer_f32[8 * i + 1] +
@@ -180,37 +177,23 @@ let handlePacked = null
         // This is a 16 bit single-pass counting sort
         let depthInv = (256 * 256) / (maxDepth - minDepth);
         let counts0 = new Uint32Array(256 * 256);
-        for (let i = 0; i < wvertexCount; i++) {
+        for (let i = 0; i < vertexCount; i++) {
             sizeList[i] = ((sizeList[i] - minDepth) * depthInv) | 0;
             counts0[sizeList[i]]++;
         }
         let starts0 = new Uint32Array(256 * 256);
         for (let i = 1; i < 256 * 256; i++)
             starts0[i] = starts0[i - 1] + counts0[i - 1];
-        depthIndex = new Uint32Array(wvertexCount);
-        for (let i = 0; i < wvertexCount; i++)
+        depthIndex = new Uint32Array(vertexCount);
+        for (let i = 0; i < vertexCount; i++)
             depthIndex[starts0[sizeList[i]]++] = i;
 
         console.timeEnd("sort");
 
         lastProj = viewProj;
 
-        handleSorted(depthIndex, wviewProj, wvertexCount)
+        setGpuDepthIndex(depthIndex)
     }
-
-    function wSetData(_buffer, _vertexCount) {
-        wbuffer = _buffer
-        wvertexCount = _vertexCount
-    }
-
-    function wSort(_viewProj) {
-        wviewProj = _viewProj
-        runSort(wviewProj)
-    }
-
-const vertexShaderSource = vertexShaderSourceQuads
-
-const fragmentShaderSource = fragmentShaderSourceQuads
 
 let worldTransform = [
     1, 0, 0, 0,
@@ -221,11 +204,14 @@ let worldTransform = [
 
 let viewMatrix = worldTransform;
 
-async function main() {
 
-    const url = 'https://huggingface.co/cakewalk/splat-data/resolve/main/train.splat'
+
     // const url = 'dataset/train.splat'
-    // const url = new URLSearchParams(location.search).get("url")
+    const url = 'dataset/gs_Emma_26fev_converted_by_kwok.splat'
+    // const url = new URLSearchParams(location.search).get("url") ?? 'https://huggingface.co/cakewalk/splat-data/resolve/main/train.splat'
+
+    let xrSession = null;
+    let xrReferenceSpace = null;
 
     const req = await fetch(url, {
         mode: "cors", // no-cors, *cors, same-origin
@@ -234,8 +220,6 @@ async function main() {
     console.log(req);
     if (req.status != 200)
         throw new Error(req.status + " Unable to load " + req.url);
-
-    const rowLength = 3 * 4 + 3 * 4 + 4 + 4; //34
 
     const downsample = 1
 
@@ -258,32 +242,30 @@ async function main() {
     gl.blendFuncSeparate(gl.ONE_MINUS_DST_ALPHA, gl.ONE, gl.ONE_MINUS_DST_ALPHA, gl.ONE);
     gl.blendEquationSeparate(gl.FUNC_ADD, gl.FUNC_ADD);
 
-    const u_projection = gl.getUniformLocation(program, "projection");
-    const u_viewport = gl.getUniformLocation(program, "viewport");
-    const u_focal = gl.getUniformLocation(program, "focal");
-    const u_view = gl.getUniformLocation(program, "view");
+    const u_projection = gl.getUniformLocation(program, "uProj");
+    const u_viewport = gl.getUniformLocation(program, "uViewport");
+    const u_focal = gl.getUniformLocation(program, "uFocal");
+    const u_view = gl.getUniformLocation(program, "uView");
 
     // positions
     const triangleVertices = new Float32Array([-2, -2, 2, -2, 2, 2, -2, 2]);
     const vertexBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, triangleVertices, gl.STATIC_DRAW);
-    const a_position = gl.getAttribLocation(program, "position");
+    const a_position = gl.getAttribLocation(program, "aPosition");
     gl.enableVertexAttribArray(a_position);
-    gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
     gl.vertexAttribPointer(a_position, 2, gl.FLOAT, false, 0, 0);
 
     var texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);
-
-    var u_textureLocation = gl.getUniformLocation(program, "u_texture");
-    gl.uniform1i(u_textureLocation, 0);
+    var u_texture = gl.getUniformLocation(program, "uTexture");
+    gl.uniform1i(u_texture, 0);
 
     const indexBuffer = gl.createBuffer();
-    const a_index = gl.getAttribLocation(program, "index");
+    const a_index = gl.getAttribLocation(program, "aIndex");
     gl.enableVertexAttribArray(a_index);
     gl.bindBuffer(gl.ARRAY_BUFFER, indexBuffer);
-    gl.vertexAttribIPointer(a_index, 1, gl.INT, false, 0, 0);
+    gl.vertexAttribIPointer(a_index, 1, gl.INT, false, 0);
     gl.vertexAttribDivisor(a_index, 1);
 
     const resize = () => {
@@ -300,7 +282,7 @@ async function main() {
     resize();
 
 
-    handlePacked = (texdata, texwidth, texheight) => { //conversion from data to texture finished
+    const setGpuTexturedata = (texdata, texwidth, texheight) => { //conversion from data to texture finished
         gl.bindTexture(gl.TEXTURE_2D, texture);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -311,10 +293,9 @@ async function main() {
         gl.bindTexture(gl.TEXTURE_2D, texture);
     }
 
-    handleSorted = (depthIndex, wviewProj, wvertexCount) => {
+    const setGpuDepthIndex = (depthIndex) => {
         gl.bindBuffer(gl.ARRAY_BUFFER, indexBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, depthIndex, gl.DYNAMIC_DRAW);
-        vertexCount = wvertexCount
     }
 
 
@@ -323,9 +304,9 @@ async function main() {
     let lastFrame = 0;
     let avgFps = 0;
 
-    const frame = (now) => {
+    const onFrame = (now) => {
         const viewProj = multiply4(projectionMatrix, viewMatrix);
-        wSort(viewProj)
+        runSort(viewProj)
 
 
         const currentFps = 1000 / (now - lastFrame) || 0;
@@ -336,7 +317,7 @@ async function main() {
             gl.uniformMatrix4fv(u_view, false, viewMatrix);
             gl.clear(gl.COLOR_BUFFER_BIT);
             gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
-            // gl.drawArraysInstanced(gl.POINTS, 0, 1, vertexCount)
+            // gl.drawArraysInstanced(gl.POINTS, 0, 1, vertexCount) //pointcloud
         } else {
             gl.clear(gl.COLOR_BUFFER_BIT);
             document.getElementById("spinner").style.display = "";
@@ -344,17 +325,95 @@ async function main() {
 
         fps.innerText = Math.round(avgFps) + " fps";
         lastFrame = now;
-        requestAnimationFrame(frame);
+        requestAnimationFrame(onFrame);
     };
+
+    let worldXRTransform = [
+        -1, 0, 0, 0,
+        0, -1, 0, 0,
+        0, 0, 1, 0,
+        2, -1, 4, 1
+    ];
+    worldXRTransform = rotate4(invert4(worldXRTransform), -90 * Math.PI / 180, 0, 1, 0);
+
+    function onXRFrame(time, frame) {
+        const session = frame.session;
+        session.requestAnimationFrame(onXRFrame);
+
+        const pose = frame.getViewerPose(xrReferenceSpace);
+        if (!pose) return
+
+        const glLayer = session.renderState.baseLayer;
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, glLayer.framebuffer);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+
+        for (const view of pose.views) {
+            const viewport = glLayer.getViewport(view);
+            gl.viewport(viewport.x * downsample, viewport.y * downsample, viewport.width * downsample, viewport.height * downsample);
+            let projectionMatrix = view.projectionMatrix;
+            gl.uniform2fv(u_viewport, new Float32Array([viewport.width, viewport.height]));
+
+            // Update projection and view matrices based on VR pose
+            gl.uniformMatrix4fv(u_projection, false, projectionMatrix);
+            gl.uniformMatrix4fv(u_view, false, view.transform.inverse.matrix);
+            gl.uniform2fv(u_focal, new Float32Array([(projectionMatrix[0] * viewport.width) / 2, -(projectionMatrix[5] * viewport.height) / 2]));
+
+            const transformedView = multiply4(view.transform.inverse.matrix, worldXRTransform);
+            gl.uniformMatrix4fv(u_view, false, transformedView);
+
+            // Render the scene
+            gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
+            // gl.drawArraysInstanced(gl.POINTS, 0, 1, vertexCount) //pointcloud
+
+            const viewProj = multiply4(projectionMatrix, transformedView);
+            // worker.postMessage({ view: viewProj });
+            runSort(viewProj)
+        }
+    }
 
 
 
     const splatData = new Uint8Array(await req.arrayBuffer())
     vertexCount = splatData.length / rowLength
     console.log(vertexCount, downsample);
-    wSetData(splatData.buffer, vertexCount)
+    wbuffer = splatData.buffer
 
-    frame();
+    onFrame();
+
+    async function startXR() {
+        xrSession = await navigator.xr.requestSession('immersive-vr', {optionalFeatures: ['local-floor']})
+        xrSession.addEventListener('end', onXRSessionEnded);
+        xrReferenceSpace = await xrSession.requestReferenceSpace('local-floor');
+        await gl.makeXRCompatible();
+        xrSession.updateRenderState({
+            baseLayer: new XRWebGLLayer(xrSession, gl, {
+                // framebufferScaleFactor: 0.75,
+                fixedFoveation: 1.0,
+                // antialias: true,
+                // depth: true,
+                // ignoreDepthValues: true
+                // foveationLevel
+            })
+        });
+        xrSession.requestAnimationFrame(onXRFrame);
+    }
+
+    function onXRSessionEnded() {
+        xrSession = null;
+    }
+
+    if (navigator.xr) {
+        navigator.xr.isSessionSupported('immersive-vr').then(supported => {
+            if (supported) {
+                document.getElementById("enter-vr").disabled = false
+                document.getElementById('enter-vr').addEventListener('click', () => {
+                    startXR();
+                });
+            }
+        });
+    }
 
 }
 

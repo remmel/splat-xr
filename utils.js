@@ -36,7 +36,7 @@ export function multiply4(a, b) {
     ];
 }
 
-function invert4(a) {
+export function invert4(a) {
     let b00 = a[0] * a[5] - a[1] * a[4];
     let b01 = a[0] * a[6] - a[2] * a[4];
     let b02 = a[0] * a[7] - a[3] * a[4];
@@ -72,7 +72,7 @@ function invert4(a) {
     ];
 }
 
-function rotate4(a, rad, x, y, z) {
+export function rotate4(a, rad, x, y, z) {
     let len = Math.hypot(x, y, z);
     x /= len;
     y /= len;
