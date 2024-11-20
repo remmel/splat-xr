@@ -202,7 +202,7 @@ let worldTransform = [
     0, 0, 3, 1
 ];
 
-let viewMatrix = worldTransform;
+let view = worldTransform;
 
 
 
@@ -268,18 +268,10 @@ let viewMatrix = worldTransform;
     gl.vertexAttribIPointer(a_index, 1, gl.INT, false, 0);
     gl.vertexAttribDivisor(a_index, 1);
 
-    const resize = () => {
-        gl.uniform2fv(u_focal, new Float32Array([camera.fx, camera.fy]));
-        projectionMatrix = getProjectionMatrix(camera.fx, camera.fy, innerWidth, innerHeight);
-        gl.uniform2fv(u_viewport, new Float32Array([innerWidth, innerHeight]));
-        gl.canvas.width = Math.round(innerWidth / downsample);
-        gl.canvas.height = Math.round(innerHeight / downsample);
-        gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-        gl.uniformMatrix4fv(u_projection, false, projectionMatrix);
-    };
-
-    window.addEventListener("resize", resize);
-    resize();
+    // console.log("canvas size before", gl.canvas.width, gl.canvas.height) //why is it 300x150?!?
+    gl.canvas.width = Math.round(innerWidth / downsample);
+    gl.canvas.height = Math.round(innerHeight / downsample);
+    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 
 
     const setGpuTexturedata = (texdata, texwidth, texheight) => { //conversion from data to texture finished
@@ -304,27 +296,43 @@ let viewMatrix = worldTransform;
     let lastFrame = 0;
     let avgFps = 0;
 
+    function draw(view, viewport, proj) {
+        gl.uniformMatrix4fv(u_projection, false, proj); //fixed
+        gl.uniformMatrix4fv(u_view, false, view); //fixed
+        gl.uniform2fv(u_viewport, new Float32Array([viewport.width, viewport.height])); //fixed
+        gl.uniform2fv(u_focal, new Float32Array([
+            (proj[0] * viewport.width) / 2,
+            -(proj[5] * viewport.height) / 2
+        ]));
+
+        const viewProj = multiply4(proj, view)
+        runSort(viewProj);
+        gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
+        // gl.drawArraysInstanced(gl.POINTS, 0, 1, vertexCount) //pointcloud
+    }
+
     const onFrame = (now) => {
-        const viewProj = multiply4(projectionMatrix, viewMatrix);
-        runSort(viewProj)
+        const viewport = {
+            width: innerWidth,
+            height: innerHeight
+        };
+        const proj = getProjectionMatrix(camera.fx, camera.fy, innerWidth, innerHeight)
 
-
+        // FPS calculation
         const currentFps = 1000 / (now - lastFrame) || 0;
         avgFps = avgFps * 0.9 + currentFps * 0.1;
+        fps.innerText = Math.round(avgFps) + " fps";
+        lastFrame = now;
 
         if (vertexCount > 0) {
             document.getElementById("spinner").style.display = "none";
-            gl.uniformMatrix4fv(u_view, false, viewMatrix);
             gl.clear(gl.COLOR_BUFFER_BIT);
-            gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
-            // gl.drawArraysInstanced(gl.POINTS, 0, 1, vertexCount) //pointcloud
+            draw(view, viewport, proj);
         } else {
             gl.clear(gl.COLOR_BUFFER_BIT);
             document.getElementById("spinner").style.display = "";
         }
 
-        fps.innerText = Math.round(avgFps) + " fps";
-        lastFrame = now;
         requestAnimationFrame(onFrame);
     };
 
@@ -348,28 +356,12 @@ let viewMatrix = worldTransform;
         gl.bindFramebuffer(gl.FRAMEBUFFER, glLayer.framebuffer);
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-
-        for (const view of pose.views) {
-            const viewport = glLayer.getViewport(view);
-            gl.viewport(viewport.x * downsample, viewport.y * downsample, viewport.width * downsample, viewport.height * downsample);
-            let projectionMatrix = view.projectionMatrix;
-            gl.uniform2fv(u_viewport, new Float32Array([viewport.width, viewport.height]));
-
-            // Update projection and view matrices based on VR pose
-            gl.uniformMatrix4fv(u_projection, false, projectionMatrix);
-            gl.uniformMatrix4fv(u_view, false, view.transform.inverse.matrix);
-            gl.uniform2fv(u_focal, new Float32Array([(projectionMatrix[0] * viewport.width) / 2, -(projectionMatrix[5] * viewport.height) / 2]));
-
-            const transformedView = multiply4(view.transform.inverse.matrix, worldXRTransform);
-            gl.uniformMatrix4fv(u_view, false, transformedView);
-
-            // Render the scene
-            gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
-            // gl.drawArraysInstanced(gl.POINTS, 0, 1, vertexCount) //pointcloud
-
-            const viewProj = multiply4(projectionMatrix, transformedView);
-            // worker.postMessage({ view: viewProj });
-            runSort(viewProj)
+        for (const xrview of pose.views) {
+            const xrviewport = glLayer.getViewport(xrview); // {x: 0, y: 0, width: 1680, height: 1760}
+            gl.viewport(xrviewport.x * downsample, xrviewport.y * downsample, xrviewport.width * downsample, xrviewport.height * downsample);
+            const proj = xrview.projectionMatrix;
+            const view = multiply4(xrview.transform.inverse.matrix, worldXRTransform)
+            draw(view, xrviewport, proj)
         }
     }
 
@@ -389,8 +381,8 @@ let viewMatrix = worldTransform;
         await gl.makeXRCompatible();
         xrSession.updateRenderState({
             baseLayer: new XRWebGLLayer(xrSession, gl, {
-                // framebufferScaleFactor: 0.75,
-                fixedFoveation: 1.0,
+                framebufferScaleFactor: 0.50,
+                // fixedFoveation: 1.0,
                 // antialias: true,
                 // depth: true,
                 // ignoreDepthValues: true
@@ -408,9 +400,7 @@ let viewMatrix = worldTransform;
         navigator.xr.isSessionSupported('immersive-vr').then(supported => {
             if (supported) {
                 document.getElementById("enter-vr").disabled = false
-                document.getElementById('enter-vr').addEventListener('click', () => {
-                    startXR();
-                });
+                document.getElementById('enter-vr').addEventListener('click', () => startXR())
             }
         });
     }
