@@ -1,6 +1,6 @@
 // import {fragmentShaderSourcePoint as fragmentShaderSource, vertexShaderSourcePoint as vertexShaderSource} from "./shadersPoints.js"; //pointcloud
 import {fragmentShaderSource, vertexShaderSource} from "./shadersQuads.js";
-import {createProgram, invert4, multiply4, rotate4} from "./utils.js";
+import {createProgram, Fps, invert4, multiply4, rotate4, translate4} from "./utils.js";
 
 let camera = {fy: 1150, fx: 1150}
 
@@ -224,9 +224,7 @@ let view = worldTransform;
     const downsample = 1
 
     const canvas = document.getElementById("canvas");
-    const fps = document.getElementById("fps");
-
-    let projectionMatrix;
+    const fps = new Fps(document.getElementById("fps"))
 
     const gl = canvas.getContext("webgl2", {
         antialias: false,
@@ -293,9 +291,6 @@ let view = worldTransform;
 
     let vertexCount = 0;
 
-    let lastFrame = 0;
-    let avgFps = 0;
-
     function draw(view, viewport, proj) {
         gl.uniformMatrix4fv(u_projection, false, proj); //fixed
         gl.uniformMatrix4fv(u_view, false, view); //fixed
@@ -318,20 +313,17 @@ let view = worldTransform;
         };
         const proj = getProjectionMatrix(camera.fx, camera.fy, innerWidth, innerHeight)
 
-        // FPS calculation
-        const currentFps = 1000 / (now - lastFrame) || 0;
-        avgFps = avgFps * 0.9 + currentFps * 0.1;
-        fps.innerText = Math.round(avgFps) + " fps";
-        lastFrame = now;
+        fps.log(true, false)
+        gl.clear(gl.COLOR_BUFFER_BIT);
 
-        if (vertexCount > 0) {
-            document.getElementById("spinner").style.display = "none";
-            gl.clear(gl.COLOR_BUFFER_BIT);
-            draw(view, viewport, proj);
-        } else {
-            gl.clear(gl.COLOR_BUFFER_BIT);
-            document.getElementById("spinner").style.display = "";
-        }
+        // carrousel movement
+        let inv = invert4(worldTransform) //defaultViewMatrix);
+        const t = Math.sin(Date.now() / 1000);
+        inv = translate4(inv, .5 * t, 0, 0.5 * (1 - Math.cos(t)));
+        inv = rotate4(inv, -0.1 * t, 0, 1, 0);
+        view = invert4(inv);
+
+        draw(view, viewport, proj);
 
         requestAnimationFrame(onFrame);
     };
@@ -371,6 +363,8 @@ let view = worldTransform;
     vertexCount = splatData.length / rowLength
     console.log(vertexCount, downsample);
     wbuffer = splatData.buffer
+
+    document.getElementById("spinner").style.display = "none";
 
     onFrame();
 

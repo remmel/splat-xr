@@ -106,7 +106,7 @@ export function rotate4(a, rad, x, y, z) {
     ];
 }
 
-function translate4(a, x, y, z) {
+export function translate4(a, x, y, z) {
     return [
         ...a.slice(0, 12),
         a[0] * x + a[4] * y + a[8] * z + a[12],
@@ -157,5 +157,30 @@ export function createProgram(gl, vertexShaderSource, fragmentShaderSource) {
         if (vertexShader) gl.deleteShader(vertexShader);
         if (fragmentShader) gl.deleteShader(fragmentShader);
         throw error;
+    }
+}
+export class Fps {
+    constructor(el) {
+        this.el = el
+        this.lastLog = 0 //in ms
+        this.nbFrames = 0 //nb of frames since lastLog
+    }
+
+    /**
+     * Log in htmlElement or in console.log the framerate.
+     * Must be called at every frame in order to also count the number of frames
+     * It will write only every 1s
+     */
+    log(inElement = true, inConsole = true) { //log every seconds
+        this.nbFrames++
+        const now = performance.now()
+        if(now - this.lastLog > 1000) { //1s has been elapsed
+            if(inConsole)
+                console.log(this.nbFrames + ' fps')
+            if(inElement)
+                this.el.innerText = this.nbFrames + ' fps'
+            this.lastLog = now
+            this.nbFrames = 0
+        }
     }
 }
