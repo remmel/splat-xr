@@ -116,6 +116,72 @@ export function translate4(a, x, y, z) {
     ];
 }
 
+export function getPerspectiveRH_ZO(fx, fy, width, height, znear = 0.2, zfar = 200) {
+    return [
+        (2 * fx) / width, 0, 0, 0,
+        0, (2 * fy) / height, 0, 0,
+        0, 0, zfar/(znear-zfar), -1,
+        0, 0, -(zfar*znear)/(zfar-znear), 0
+    ];
+}
+
+export function getPerspectiveRH_NO(fx, fy, width, height, znear = 0.2, zfar = 200) {
+    return [
+        [(2 * fx) / width, 0, 0, 0],
+        [0, (2 * fy) / height, 0, 0],
+        [0, 0, -(zfar + znear)/(zfar - znear), -1],
+        [0, 0, -(2 * zfar * znear)/(zfar - znear), 0]
+    ].flat();
+}
+
+/**
+ * Original getProjectionMatrix, is getPerspectiveLH_ZO with flipped Y.
+ * We should use instead getPerspectiveRH_NO :
+ * - RH (Right Hand)
+ * - NO (Negative One to One) [-1;1]
+ */
+export function getProjectionMatrix(fx, fy, width, height) {
+    let proj = getPerspectiveLH_ZO(fx, fy, width, height)
+    proj[5] *= -1 //flip Y
+    return proj
+}
+
+export function getPerspectiveLH_ZO(fx, fy, width, height, znear = 0.2, zfar = 200) {
+    return [
+        [(2 * fx) / width, 0, 0, 0],
+        [0, (2 * fy) / height, 0, 0],
+        [0, 0, zfar / (zfar - znear), 1],
+        [0, 0, -(zfar * znear) / (zfar - znear), 0],
+    ].flat();
+}
+
+export function getPerspectiveLH_NO(fx, fy, width, height, znear = 0.2, zfar = 200) {
+    return [
+        (2 * fx) / width, 0, 0, 0,
+        0, (2 * fy) / height, 0, 0,
+        0, 0, (zfar + znear) / (zfar - znear), 1,
+        0, 0, -(2 * zfar * znear) / (zfar - znear), 0
+    ];
+}
+
+export function animateCarrouselMouvement(_view) {
+    // carrousel movement
+    let inv = invert4(_view)
+    const t = Math.sin(Date.now() / 1000)
+    inv = translate4(inv, .5 * t, 0, 0.5 * (1 - Math.cos(t)))
+    inv = rotate4(inv, -0.1 * t, 0, 1, 0)
+    const view = invert4(inv)
+    return view
+}
+
+// carrousel movement
+// let inv = invert4(worldTransform) //defaultViewMatrix);
+// const t = Math.sin(Date.now() / 1000);
+// inv = translate4(inv, .5 * t, 0, 0.5 * (1 - Math.cos(t)));
+// inv = rotate4(inv, -0.1 * t, 0, 1, 0);
+// view = invert4(inv);
+
+
 function compileShader(gl, source, type) {
     const shader = gl.createShader(type);
     gl.shaderSource(shader, source);

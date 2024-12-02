@@ -1,19 +1,15 @@
 // import {fragmentShaderSourcePoint as fragmentShaderSource, vertexShaderSourcePoint as vertexShaderSource} from "./shadersPoints.js"; //pointcloud
 import {fragmentShaderSource, vertexShaderSource} from "./shadersQuads.js";
-import {createProgram, Fps, invert4, multiply4, rotate4, translate4} from "./utils.js";
-
-let camera = {fy: 1150, fx: 1150}
-
-function getProjectionMatrix(fx, fy, width, height) {
-    const znear = 0.2;
-    const zfar = 200;
-    return [
-        [(2 * fx) / width, 0, 0, 0],
-        [0, -(2 * fy) / height, 0, 0],
-        [0, 0, zfar / (zfar - znear), 1],
-        [0, 0, -(zfar * znear) / (zfar - znear), 0],
-    ].flat();
-}
+import {
+    animateCarrouselMouvement,
+    createProgram,
+    Fps, getPerspectiveLH_NO, getPerspectiveLH_ZO,
+    getPerspectiveRH_NO, getPerspectiveRH_ZO, getProjectionMatrix,
+    invert4,
+    multiply4,
+    rotate4,
+    translate4
+} from "./utils.js";
 
 async function main() {
 
@@ -237,34 +233,34 @@ let view = worldTransform;
 
     // Enable blending
     gl.enable(gl.BLEND);
-    gl.blendFuncSeparate(gl.ONE_MINUS_DST_ALPHA, gl.ONE, gl.ONE_MINUS_DST_ALPHA, gl.ONE);
-    gl.blendEquationSeparate(gl.FUNC_ADD, gl.FUNC_ADD);
+    gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.ONE)
+    // gl.blendFunc(gl.ONE, gl.ONE_MINUS_DST_ALPHA)
 
-    const u_projection = gl.getUniformLocation(program, "uProj");
-    const u_viewport = gl.getUniformLocation(program, "uViewport");
-    const u_focal = gl.getUniformLocation(program, "uFocal");
-    const u_view = gl.getUniformLocation(program, "uView");
+    const uProjLoc = gl.getUniformLocation(program, "uProj");
+    const uViewportLoc = gl.getUniformLocation(program, "uViewport");
+    const uFocalLoc = gl.getUniformLocation(program, "uFocal");
+    const uViewLoc = gl.getUniformLocation(program, "uView");
 
     // positions
     const triangleVertices = new Float32Array([-2, -2, 2, -2, 2, 2, -2, 2]);
     const vertexBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, triangleVertices, gl.STATIC_DRAW);
-    const a_position = gl.getAttribLocation(program, "aPosition");
-    gl.enableVertexAttribArray(a_position);
-    gl.vertexAttribPointer(a_position, 2, gl.FLOAT, false, 0, 0);
+    const aPositionLoc = gl.getAttribLocation(program, "aPosition");
+    gl.enableVertexAttribArray(aPositionLoc);
+    gl.vertexAttribPointer(aPositionLoc, 2, gl.FLOAT, false, 0, 0);
 
     var texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);
-    var u_texture = gl.getUniformLocation(program, "uTexture");
-    gl.uniform1i(u_texture, 0);
+    var uTextureLoc = gl.getUniformLocation(program, "uTexture");
+    gl.uniform1i(uTextureLoc, 0);
 
-    const indexBuffer = gl.createBuffer();
-    const a_index = gl.getAttribLocation(program, "aIndex");
-    gl.enableVertexAttribArray(a_index);
+    const indexBuffer = gl.createBuffer()
+    const aIndexLoc = gl.getAttribLocation(program, "aIndex");
+    gl.enableVertexAttribArray(aIndexLoc);
     gl.bindBuffer(gl.ARRAY_BUFFER, indexBuffer);
-    gl.vertexAttribIPointer(a_index, 1, gl.INT, false, 0);
-    gl.vertexAttribDivisor(a_index, 1);
+    gl.vertexAttribIPointer(aIndexLoc, 1, gl.INT, false, 0);
+    gl.vertexAttribDivisor(aIndexLoc, 1);
 
     // console.log("canvas size before", gl.canvas.width, gl.canvas.height) //why is it 300x150?!?
     gl.canvas.width = Math.round(innerWidth / downsample);
@@ -292,10 +288,10 @@ let view = worldTransform;
     let vertexCount = 0;
 
     function draw(view, viewport, proj) {
-        gl.uniformMatrix4fv(u_projection, false, proj); //fixed
-        gl.uniformMatrix4fv(u_view, false, view); //fixed
-        gl.uniform2fv(u_viewport, new Float32Array([viewport.width, viewport.height])); //fixed
-        gl.uniform2fv(u_focal, new Float32Array([
+        gl.uniformMatrix4fv(uProjLoc, false, proj); //fixed
+        gl.uniformMatrix4fv(uViewLoc, false, view); //fixed
+        gl.uniform2fv(uViewportLoc, new Float32Array([viewport.width, viewport.height])); //fixed
+        gl.uniform2fv(uFocalLoc, new Float32Array([
             (proj[0] * viewport.width) / 2,
             -(proj[5] * viewport.height) / 2
         ]));
@@ -307,21 +303,15 @@ let view = worldTransform;
     }
 
     const onFrame = (now) => {
-        const viewport = {
-            width: innerWidth,
-            height: innerHeight
-        };
-        const proj = getProjectionMatrix(camera.fx, camera.fy, innerWidth, innerHeight)
+        const w = 1000, h = 1000, fx=1000, fy = 1000; //for benchmark purposes
+        // const w = innerWidth, h = innerHeight, fx = 1150, fy = 1150
+        const viewport = {width: w, height: h};
+        let proj = getProjectionMatrix(fx, fy, w, h)
 
         fps.log(true, false)
         gl.clear(gl.COLOR_BUFFER_BIT);
 
-        // carrousel movement
-        let inv = invert4(worldTransform) //defaultViewMatrix);
-        const t = Math.sin(Date.now() / 1000);
-        inv = translate4(inv, .5 * t, 0, 0.5 * (1 - Math.cos(t)));
-        inv = rotate4(inv, -0.1 * t, 0, 1, 0);
-        view = invert4(inv);
+        const view = animateCarrouselMouvement(worldTransform)
 
         draw(view, viewport, proj);
 
