@@ -6,7 +6,7 @@ import {
     Fps, getPerspectiveLH_NO, getPerspectiveLH_ZO,
     getPerspectiveRH_NO, getPerspectiveRH_ZO, getProjectionMatrix,
     invert4,
-    multiply4,
+    multiply4, packHalf2x16,
     rotate4,
     translate4
 } from "./utils.js";
@@ -24,42 +24,6 @@ async function main() {
     let lastProj = [];
     let depthIndex = new Uint32Array();
     let lastVertexCount = 0;
-
-    var _floatView = new Float32Array(1);
-    var _int32View = new Int32Array(_floatView.buffer);
-
-    function floatToHalf(float) {
-        _floatView[0] = float;
-        var f = _int32View[0];
-
-        var sign = (f >> 31) & 0x0001;
-        var exp = (f >> 23) & 0x00ff;
-        var frac = f & 0x007fffff;
-
-        var newExp;
-        if (exp == 0) {
-            newExp = 0;
-        } else if (exp < 113) {
-            newExp = 0;
-            frac |= 0x00800000;
-            frac = frac >> (113 - exp);
-            if (frac & 0x01000000) {
-                newExp = 1;
-                frac = 0;
-            }
-        } else if (exp < 142) {
-            newExp = exp - 112;
-        } else {
-            newExp = 31;
-            frac = 0;
-        }
-
-        return (sign << 15) | (newExp << 10) | (frac >> 13);
-    }
-
-    function packHalf2x16(x, y) {
-        return (floatToHalf(x) | (floatToHalf(y) << 16)) >>> 0;
-    }
 
     // pack buffer data into texture
     function generateTexture() {
@@ -263,8 +227,10 @@ let view = worldTransform;
     gl.vertexAttribDivisor(aIndexLoc, 1);
 
     // console.log("canvas size before", gl.canvas.width, gl.canvas.height) //why is it 300x150?!?
-    gl.canvas.width = Math.round(innerWidth / downsample);
-    gl.canvas.height = Math.round(innerHeight / downsample);
+    const w = 1000, h = 1000, fx=1000, fy = 1000; //for benchmark purposes
+    // const w = innerWidth, h = innerHeight, fx = 1150, fy = 1150
+    gl.canvas.width = w
+    gl.canvas.height = h
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 
 
@@ -303,15 +269,13 @@ let view = worldTransform;
     }
 
     const onFrame = (now) => {
-        const w = 1000, h = 1000, fx=1000, fy = 1000; //for benchmark purposes
-        // const w = innerWidth, h = innerHeight, fx = 1150, fy = 1150
         const viewport = {width: w, height: h};
         let proj = getProjectionMatrix(fx, fy, w, h)
 
         fps.log(true, false)
         gl.clear(gl.COLOR_BUFFER_BIT);
 
-        const view = animateCarrouselMouvement(worldTransform)
+        // const view = animateCarrouselMouvement(worldTransform)
 
         draw(view, viewport, proj);
 
@@ -365,7 +329,7 @@ let view = worldTransform;
         await gl.makeXRCompatible();
         xrSession.updateRenderState({
             baseLayer: new XRWebGLLayer(xrSession, gl, {
-                framebufferScaleFactor: 0.50,
+                // framebufferScaleFactor: 0.50,
                 // fixedFoveation: 1.0,
                 // antialias: true,
                 // depth: true,

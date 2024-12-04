@@ -225,6 +225,42 @@ export function createProgram(gl, vertexShaderSource, fragmentShaderSource) {
         throw error;
     }
 }
+
+var _floatView = new Float32Array(1);
+var _int32View = new Int32Array(_floatView.buffer);
+
+function floatToHalf(float) {
+    _floatView[0] = float;
+    var f = _int32View[0];
+
+    var sign = (f >> 31) & 0x0001;
+    var exp = (f >> 23) & 0x00ff;
+    var frac = f & 0x007fffff;
+
+    var newExp;
+    if (exp == 0) {
+        newExp = 0;
+    } else if (exp < 113) {
+        newExp = 0;
+        frac |= 0x00800000;
+        frac = frac >> (113 - exp);
+        if (frac & 0x01000000) {
+            newExp = 1;
+            frac = 0;
+        }
+    } else if (exp < 142) {
+        newExp = exp - 112;
+    } else {
+        newExp = 31;
+        frac = 0;
+    }
+
+    return (sign << 15) | (newExp << 10) | (frac >> 13);
+}
+
+export function packHalf2x16(x, y) {
+    return (floatToHalf(x) | (floatToHalf(y) << 16)) >>> 0;
+}
 export class Fps {
     constructor(el) {
         this.el = el
