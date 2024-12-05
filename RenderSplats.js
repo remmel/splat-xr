@@ -95,11 +95,7 @@ export class RenderSplats {
             texdata_f32[8 * i + 2] = buffer_f32[8 * i + 2]
 
             // r, g, b, a - uint8 - 4*1B <=> 4x8b
-            // texdata_c[4 * (8 * i + 7) + 0] = u_buffer[32 * i + 24 + 0]
-            texdata_u8[32 * i + 28 + 0] = buffer_u8[32 * i + 24 + 0]
-            texdata_u8[32 * i + 28 + 1] = buffer_u8[32 * i + 24 + 1]
-            texdata_u8[32 * i + 28 + 2] = buffer_u8[32 * i + 24 + 2]
-            texdata_u8[32 * i + 28 + 3] = buffer_u8[32 * i + 24 + 3]
+            texdata_u32[8*i+7] = buffer_u32[8 * i + 6]
 
             // quaternions
             let scale = [
