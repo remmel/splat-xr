@@ -167,7 +167,7 @@ let view = worldTransform;
 
 
     // const url = 'dataset/train.splat'
-    const url = 'dataset/gs_Emma_26fev_converted_by_kwok.splat'
+    const url = 'tmp/gs_Emma_26fev_converted_by_kwok.splat'
     // const url = new URLSearchParams(location.search).get("url") ?? 'https://huggingface.co/cakewalk/splat-data/resolve/main/train.splat'
 
     let xrSession = null;
