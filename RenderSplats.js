@@ -15,6 +15,7 @@ export class RenderSplats {
         gl.bindVertexArray(this.vao)
 
         const program = this.program = createProgram(gl, vertexShaderSource, fragmentShaderSource)
+        // gl.useProgram(program)
 
         this.uProjLoc = gl.getUniformLocation(program, "uProj")
         this.uViewportLoc = gl.getUniformLocation(program, "uViewport")
@@ -32,8 +33,8 @@ export class RenderSplats {
 
         this.texture = gl.createTexture()
         gl.bindTexture(gl.TEXTURE_2D, this.texture)
-        const uTextureLoc = gl.getUniformLocation(program, "uTexture")
-        gl.uniform1i(uTextureLoc, 0)
+        // const uTextureLoc = gl.getUniformLocation(program, "uTexture")
+        // gl.uniform1i(uTextureLoc, 0)
 
         this.indexBuffer = gl.createBuffer()
         const aIndexLoc = gl.getAttribLocation(program, "aIndex")
@@ -171,7 +172,7 @@ export class RenderSplats {
 
         // Enable blending
         gl.enable(gl.BLEND)
-        gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.ONE)
+        gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.ONE) // antimatter
         // gl.blendFunc(gl.ONE, gl.ONE_MINUS_DST_ALPHA)
 
         gl.useProgram(this.program)
