@@ -1,4 +1,4 @@
-// import {fragmentShaderSourcePoint as fragmentShaderSource, vertexShaderSourcePoint as vertexShaderSource} from "./shadersPoints.js"; //pointcloud
+import { RenderCube } from "./RenderCube.js";
 import { RenderSplats } from "./RenderSplats.js";
 import { animateCarrouselMouvement, Fps, getProjectionMatrix, invert4, multiply4, rotate4 } from "./utils.js";
 
@@ -31,17 +31,18 @@ async function main() {
         antialias: false,
     });
 
-
     const renderSplats = new RenderSplats(gl)
     await renderSplats.fetch(url)
     document.getElementById("spinner").style.display = "none"
 
     // console.log("canvas size before", gl.canvas.width, gl.canvas.height) //why is it 300x150?!?
-    const w = 1000, h = 1000, fx=1000, fy = 1000; //for benchmark purposes
+    const w = 1000, h = 1000, fx=1000, fy = 1000 //for benchmark purposes
     // const w = innerWidth, h = innerHeight, fx = 1150, fy = 1150
     gl.canvas.width = w
     gl.canvas.height = h
-    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height)
+
+    const renderCube = new RenderCube(gl)
 
 
     const onFrame = (now) => {
@@ -49,10 +50,11 @@ async function main() {
         let proj = getProjectionMatrix(fx, fy, w, h)
 
         fps.log(true, false)
-        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
         const view = animateCarrouselMouvement(worldTransform)
 
+        // renderCube.draw(view, viewport, proj)
         renderSplats.draw(view, viewport, proj)
 
         requestAnimationFrame(onFrame);

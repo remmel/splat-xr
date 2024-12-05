@@ -1,3 +1,4 @@
+// import {fragmentShaderSourcePoint as fragmentShaderSource, vertexShaderSourcePoint as vertexShaderSource} from "./shadersPoints.js"; //pointcloud
 import { fragmentShaderSource, vertexShaderSource } from "./shadersQuads.js"
 import { createProgram, multiply4, packHalf2x16 } from "./utils.js"
 
@@ -9,15 +10,11 @@ export class RenderSplats {
     /** @var ArrayBuffer contains the splats data fetched */
     splatsBuffer = null
     constructor(gl) {
-        const program = createProgram(gl, vertexShaderSource, fragmentShaderSource)
-        gl.useProgram(program)
 
-        gl.disable(gl.DEPTH_TEST) // Disable depth testing
+        this.vao = gl.createVertexArray()
+        gl.bindVertexArray(this.vao)
 
-        // Enable blending
-        gl.enable(gl.BLEND)
-        gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.ONE)
-        // gl.blendFunc(gl.ONE, gl.ONE_MINUS_DST_ALPHA)
+        const program = this.program = createProgram(gl, vertexShaderSource, fragmentShaderSource)
 
         this.uProjLoc = gl.getUniformLocation(program, "uProj")
         this.uViewportLoc = gl.getUniformLocation(program, "uViewport")
@@ -169,6 +166,16 @@ export class RenderSplats {
 
     draw(view, viewport, proj) {
         const gl = this.gl
+
+        gl.disable(gl.DEPTH_TEST)
+
+        // Enable blending
+        gl.enable(gl.BLEND)
+        gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.ONE)
+        // gl.blendFunc(gl.ONE, gl.ONE_MINUS_DST_ALPHA)
+
+        gl.useProgram(this.program)
+        gl.bindVertexArray(this.vao)
         gl.uniformMatrix4fv(this.uProjLoc, false, proj) //fixed
         gl.uniformMatrix4fv(this.uViewLoc, false, view) //fixed
         gl.uniform2fv(this.uViewportLoc, new Float32Array([viewport.width, viewport.height])) //fixed
@@ -180,7 +187,7 @@ export class RenderSplats {
         const viewProj = multiply4(proj, view)
         this.runSort(viewProj)
         gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, this.vertexCount)
-        // gl.drawArraysInstanced(gl.POINTS, 0, 1, vertexCount) //pointcloud
+        // gl.drawArraysInstanced(gl.POINTS, 0, 1, this.vertexCount) //pointcloud
     }
 
     runSort(viewProj) {

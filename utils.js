@@ -174,14 +174,6 @@ export function animateCarrouselMouvement(_view) {
     return view
 }
 
-// carrousel movement
-// let inv = invert4(worldTransform) //defaultViewMatrix);
-// const t = Math.sin(Date.now() / 1000);
-// inv = translate4(inv, .5 * t, 0, 0.5 * (1 - Math.cos(t)));
-// inv = rotate4(inv, -0.1 * t, 0, 1, 0);
-// view = invert4(inv);
-
-
 function compileShader(gl, source, type) {
     const shader = gl.createShader(type);
     gl.shaderSource(shader, source);
