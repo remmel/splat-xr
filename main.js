@@ -1,4 +1,3 @@
-import { RenderCube } from "./RenderCube.js";
 import { RenderSplats } from "./RenderSplats.js";
 import { animateCarrouselMouvement, Fps, getProjectionMatrix, invert4, multiply4, rotate4 } from "./utils.js";
 
@@ -42,9 +41,6 @@ async function main() {
     gl.canvas.height = h
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height)
 
-    const renderCube = new RenderCube(gl)
-
-
     const onFrame = (now) => {
         const viewport = {width: w, height: h};
         let proj = getProjectionMatrix(fx, fy, w, h)
@@ -54,7 +50,6 @@ async function main() {
 
         const view = animateCarrouselMouvement(worldTransform)
 
-        // renderCube.draw(view, viewport, proj)
         renderSplats.draw(view, viewport, proj)
 
         requestAnimationFrame(onFrame);
