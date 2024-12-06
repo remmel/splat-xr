@@ -16,12 +16,11 @@ async function main() {
 
     // const url = 'dataset/train.splat'
     const url = 'tmp/gs_Emma_26fev_converted_by_kwok.splat'
+    // const url = 'tmp/gs_Emma_26fev_low.splat'
     // const url = new URLSearchParams(location.search).get("url") ?? 'https://huggingface.co/cakewalk/splat-data/resolve/main/train.splat'
 
     let xrSession = null;
     let xrReferenceSpace = null;
-
-    const downsample = 1
 
     const canvas = document.getElementById("canvas");
     const fps = new Fps(document.getElementById("fps"))
@@ -36,7 +35,8 @@ async function main() {
 
     // console.log("canvas size before", gl.canvas.width, gl.canvas.height) //why is it 300x150?!?
     const w = 1000, h = 1000, fx=1000, fy = 1000 //for benchmark purposes
-    // const w = innerWidth, h = innerHeight, fx = 1150, fy = 1150
+    // const ds = 1 //downscale
+    // const w = innerWidth / ds, h = innerHeight / ds, fx = 1150 / ds, fy = 1150 / ds
     gl.canvas.width = w
     gl.canvas.height = h
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height)
@@ -48,7 +48,7 @@ async function main() {
         fps.log(true, false)
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
-        const view = animateCarrouselMouvement(worldTransform)
+        // const view = animateCarrouselMouvement(worldTransform)
 
         renderSplats.draw(view, viewport, proj)
 
@@ -77,8 +77,8 @@ async function main() {
 
         for (const xrview of pose.views) {
             const xrviewport = glLayer.getViewport(xrview); // {x: 0, y: 0, width: 1680, height: 1760}
-            gl.viewport(xrviewport.x * downsample, xrviewport.y * downsample, xrviewport.width * downsample, xrviewport.height * downsample);
-            const proj = xrview.projectionMatrix;
+            gl.viewport(xrviewport.x, xrviewport.y , xrviewport.width, xrviewport.height)
+            const proj = xrview.projectionMatrix
             const view = multiply4(xrview.transform.inverse.matrix, worldXRTransform)
             renderSplats.draw(view, xrviewport, proj)
         }
@@ -93,7 +93,7 @@ async function main() {
         await gl.makeXRCompatible();
         xrSession.updateRenderState({
             baseLayer: new XRWebGLLayer(xrSession, gl, {
-                // framebufferScaleFactor: 0.50,
+                // framebufferScaleFactor: 0.50, //similar as downscaling the viewport?
                 // fixedFoveation: 1.0,
                 // antialias: true,
                 // depth: true,
