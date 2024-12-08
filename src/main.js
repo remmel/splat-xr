@@ -29,6 +29,16 @@ async function main() {
         antialias: false,
     });
 
+    if(!gl) return console.error("Fail creating gl")
+    const ext = gl.getExtension('EXT_color_buffer_float'); //mandatory
+    if (!ext) {
+        console.error('Floating point textures not supported');
+    }
+    // const ext2 = gl.getExtension('EXT_float_blend');
+    // if (!ext2) {
+    //     console.error('Floating point blending not supported');
+    // }
+
     // console.log("canvas size before", gl.canvas.width, gl.canvas.height) //why is it 300x150?!?
     const w = 1000, h = 1000, fx=1000, fy = 1000 //for benchmark purposes
     // const ds = 1 //downscale

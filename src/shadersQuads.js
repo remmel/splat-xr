@@ -82,13 +82,20 @@ in vec4 vColor;
 in vec2 vPosition;
 
 layout(location = 0) out vec4 fragColor;
+//layout(location = 1) out uvec4 bufferColor;
 layout(location = 1) out vec4 bufferColor;
 
 void main () {
-    bufferColor = vec4(0.0,1.0,0.5,1.0);
+//    bufferColor = vec4(0.0,1.0/256.0, .0,.0);
+//      bufferColor = uvec4(0,1,255,0);
+//    bufferColor = ivec4(0,255,65536,0);
     float A = -dot(vPosition, vPosition);
     if (A < -4.0) discard;
     float B = exp(A) * vColor.a;
-    fragColor = vec4(B * vColor.rgb, B);
+//    fragColor = vec4(B * vColor.rgb, B);
+    fragColor = vec4(0.0,1.0/256.0, .0,.0);
+//    bufferColor = vec4(B * vColor.rgb, B);
+//    bufferColor = uvec4(0,1,65535,65535);
+    bufferColor = vec4(0.0,1.0, .0,.0);
 }
 `.trim();

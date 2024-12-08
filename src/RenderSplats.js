@@ -45,23 +45,27 @@ export class RenderSplats {
 
         this.gl = gl
 
+        const w = gl.canvas.width, h = gl.canvas.height
         this.fbo = gl.createFramebuffer()
         gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo)
 
         const textureColor0 = gl.createTexture()
         gl.bindTexture(gl.TEXTURE_2D, textureColor0)
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.canvas.width, gl.canvas.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
         gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, textureColor0, 0)
 
-        // gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 0, 0, gl.canvas.width, gl.canvas.height, 0); //TO DO WHAT?
+        // gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 0, 0, w, h, 0); //TO DO WHAT?
 
         const textureFloat1 = gl.createTexture()
         gl.bindTexture(gl.TEXTURE_2D, textureFloat1)
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.canvas.width, gl.canvas.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+        // gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null) // default
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.FLOAT, null);
+        // gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16UI, w, h, 0, gl.RGBA_INTEGER, gl.UNSIGNED_SHORT, null)
+        // gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, w, h, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, null)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
         gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, textureFloat1, 0)
 
         gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
@@ -184,13 +188,19 @@ export class RenderSplats {
 
     draw(view, viewport, proj) {
         const gl = this.gl
+        const w = gl.canvas.width, h = gl.canvas.height
 
         gl.disable(gl.DEPTH_TEST)
 
         // Enable blending
         gl.enable(gl.BLEND)
-        gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.ONE) // antimatter
+        // gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.ONE) // antimatter
         // gl.blendFunc(gl.ONE, gl.ONE_MINUS_DST_ALPHA)
+        gl.blendFunc(gl.ONE, gl.ONE)
+
+        // gl.clearBufferfv(gl.COLOR, 0, [0.0, 0.0, 0.0, 0.0])
+        // gl.clearBufferuiv(gl.COLOR, 1, new Uint32Array([0, 0, 0, 0]));
+
 
         gl.useProgram(this.program)
         gl.bindVertexArray(this.vao)
@@ -209,27 +219,47 @@ export class RenderSplats {
 
         gl.readBuffer(gl.COLOR_ATTACHMENT0);
         const pixels = new Uint8Array(4);
-        gl.readPixels(gl.canvas.width/2, gl.canvas.height/2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        gl.readPixels(w/2, h/2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
         console.log(`COLOR_ATTACHMENT0:`, pixels);
 
         // Now blit to the canvas (default framebuffer), using attachment just read `gl.readBuffer`
         gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.fbo);
         gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
         gl.blitFramebuffer(
-            0, 0, gl.canvas.width, gl.canvas.height,  // source rectangle
-            0, 0, gl.canvas.width, gl.canvas.height,  // destination rectangle
+            0, 0, w, h,  // source rectangle
+            0, 0, w, h,  // destination rectangle
             gl.COLOR_BUFFER_BIT,               // mask
             gl.NEAREST                         // filter
         );
 
         gl.readBuffer(gl.COLOR_ATTACHMENT1);
-        const pixels2 = new Uint8Array(4);
-        gl.readPixels(gl.canvas.width/2, gl.canvas.height/2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels2);
+        // const pixels2 = new Uint8Array(4);
+        // gl.readPixels(w/2, h/2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels2);
+        // const pixels2 = new Uint16Array(4);
+        // gl.readPixels(w/2, h/2, 1, 1, gl.RGBA_INTEGER, gl.UNSIGNED_SHORT, pixels2);
+
+        const pixels2 = new Float32Array(4)
+        gl.readPixels(w/2, h/2, 1, 1, gl.RGBA, gl.FLOAT, pixels2)
         console.log(`COLOR_ATTACHMENT1:`, pixels2);
 
 
-
-        // TODO use unique float value, instead of RGBA
+        const pixels3 = new Float32Array(w * h * 4)
+        // Read pixels from framebuffer
+        gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, pixels3);
+        // Find max values per channel
+        let maxR = -Infinity, maxG = -Infinity, maxB = -Infinity, maxA = -Infinity;
+        for(let i = 0; i < pixels3.length; i += 4) {
+            maxR = Math.max(maxR, pixels3[i]);
+            maxG = Math.max(maxG, pixels3[i + 1]);
+            maxB = Math.max(maxB, pixels3[i + 2]);
+            maxA = Math.max(maxA, pixels3[i + 3]);
+        }
+        console.log('Max values:', {
+            red: maxR,
+            green: maxG,
+            blue: maxB,
+            alpha: maxA
+        });
 
     }
 
