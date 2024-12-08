@@ -44,6 +44,27 @@ export class RenderSplats {
         gl.vertexAttribDivisor(aIndexLoc, 1)
 
         this.gl = gl
+
+        this.fbo = gl.createFramebuffer()
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo)
+
+        const textureColor0 = gl.createTexture()
+        gl.bindTexture(gl.TEXTURE_2D, textureColor0)
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.canvas.width, gl.canvas.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, textureColor0, 0)
+
+        // gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 0, 0, gl.canvas.width, gl.canvas.height, 0); //TO DO WHAT?
+
+        const textureFloat1 = gl.createTexture()
+        gl.bindTexture(gl.TEXTURE_2D, textureFloat1)
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.canvas.width, gl.canvas.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, textureFloat1, 0)
+
+        gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
     }
 
     async fetch(url) {
@@ -185,6 +206,31 @@ export class RenderSplats {
         this.runSort(viewProj)
         gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, this.vertexCount)
         // gl.drawArraysInstanced(gl.POINTS, 0, 1, this.vertexCount) //pointcloud
+
+        gl.readBuffer(gl.COLOR_ATTACHMENT0);
+        const pixels = new Uint8Array(4);
+        gl.readPixels(gl.canvas.width/2, gl.canvas.height/2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        console.log(`COLOR_ATTACHMENT0:`, pixels);
+
+        // Now blit to the canvas (default framebuffer), using attachment just read `gl.readBuffer`
+        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.fbo);
+        gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+        gl.blitFramebuffer(
+            0, 0, gl.canvas.width, gl.canvas.height,  // source rectangle
+            0, 0, gl.canvas.width, gl.canvas.height,  // destination rectangle
+            gl.COLOR_BUFFER_BIT,               // mask
+            gl.NEAREST                         // filter
+        );
+
+        gl.readBuffer(gl.COLOR_ATTACHMENT1);
+        const pixels2 = new Uint8Array(4);
+        gl.readPixels(gl.canvas.width/2, gl.canvas.height/2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels2);
+        console.log(`COLOR_ATTACHMENT1:`, pixels2);
+
+
+
+        // TODO use unique float value, instead of RGBA
+
     }
 
     runSort(viewProj) {

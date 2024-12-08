@@ -29,10 +29,6 @@ async function main() {
         antialias: false,
     });
 
-    const renderSplats = new RenderSplats(gl)
-    await renderSplats.fetch(url)
-    document.getElementById("spinner").style.display = "none"
-
     // console.log("canvas size before", gl.canvas.width, gl.canvas.height) //why is it 300x150?!?
     const w = 1000, h = 1000, fx=1000, fy = 1000 //for benchmark purposes
     // const ds = 1 //downscale
@@ -40,6 +36,10 @@ async function main() {
     gl.canvas.width = w
     gl.canvas.height = h
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height)
+
+    const renderSplats = new RenderSplats(gl)
+    await renderSplats.fetch(url)
+    document.getElementById("spinner").style.display = "none"
 
     const onFrame = (now) => {
         const viewport = {width: w, height: h};
@@ -52,7 +52,7 @@ async function main() {
 
         renderSplats.draw(view, viewport, proj)
 
-        requestAnimationFrame(onFrame);
+        // requestAnimationFrame(onFrame);
     };
 
     let worldXRTransform = [

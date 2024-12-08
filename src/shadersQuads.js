@@ -81,9 +81,11 @@ precision highp float;
 in vec4 vColor;
 in vec2 vPosition;
 
-out vec4 fragColor;
+layout(location = 0) out vec4 fragColor;
+layout(location = 1) out vec4 bufferColor;
 
 void main () {
+    bufferColor = vec4(0.0,1.0,0.5,1.0);
     float A = -dot(vPosition, vPosition);
     if (A < -4.0) discard;
     float B = exp(A) * vColor.a;
