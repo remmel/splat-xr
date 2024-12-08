@@ -58,15 +58,22 @@ export class RenderSplats {
 
         // gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 0, 0, w, h, 0); //TO DO WHAT?
 
-        const textureFloat1 = gl.createTexture()
-        gl.bindTexture(gl.TEXTURE_2D, textureFloat1)
+        const textureCount = gl.createTexture()
+        gl.bindTexture(gl.TEXTURE_2D, textureCount)
         // gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null) // default
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.FLOAT, null);
-        // gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16UI, w, h, 0, gl.RGBA_INTEGER, gl.UNSIGNED_SHORT, null)
-        // gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, w, h, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, null)
+
+        // using `fragCount` KO: blending seems to be  ignored (color OK)
+        // gl.texImage2D(gl.TEXTURE_2D, 0,
+        //     gl.R32I, //internalformat
+        //     w, h, 0,
+        //     gl.RED_INTEGER,//format
+        //     gl.INT, //type
+        //     null);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, w, h, 0, gl.RED, gl.FLOAT, null)
+
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, textureFloat1, 0)
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, textureCount, 0)
 
         gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
     }
@@ -232,35 +239,24 @@ export class RenderSplats {
             gl.NEAREST                         // filter
         );
 
-        gl.readBuffer(gl.COLOR_ATTACHMENT1);
-        // const pixels2 = new Uint8Array(4);
-        // gl.readPixels(w/2, h/2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels2);
-        // const pixels2 = new Uint16Array(4);
-        // gl.readPixels(w/2, h/2, 1, 1, gl.RGBA_INTEGER, gl.UNSIGNED_SHORT, pixels2);
 
-        const pixels2 = new Float32Array(4)
-        gl.readPixels(w/2, h/2, 1, 1, gl.RGBA, gl.FLOAT, pixels2)
-        console.log(`COLOR_ATTACHMENT1:`, pixels2);
+        // attachment1 referring to `fragCount`
 
+        gl.readBuffer(gl.COLOR_ATTACHMENT1)
 
-        const pixels3 = new Float32Array(w * h * 4)
-        // Read pixels from framebuffer
-        gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, pixels3);
-        // Find max values per channel
-        let maxR = -Infinity, maxG = -Infinity, maxB = -Infinity, maxA = -Infinity;
-        for(let i = 0; i < pixels3.length; i += 4) {
-            maxR = Math.max(maxR, pixels3[i]);
-            maxG = Math.max(maxG, pixels3[i + 1]);
-            maxB = Math.max(maxB, pixels3[i + 2]);
-            maxA = Math.max(maxA, pixels3[i + 3]);
-        }
-        console.log('Max values:', {
-            red: maxR,
-            green: maxG,
-            blue: maxB,
-            alpha: maxA
-        });
+        const pixel_1_f32 = new Float32Array(1)
+        gl.readPixels(w/2, h/2, 1, 1, gl.RED, gl.FLOAT, pixel_1_f32)
+        console.log(`COLOR_ATTACHMENT1:`, pixel_1_f32);
 
+        // const pixel_1_i32 = new Int32Array(1)
+        // gl.readPixels(w/2, h/2, 1, 1, gl.RED_INTEGER, gl.INT, pixel_1_i32)
+        // console.log(`COLOR_ATTACHMENT1:`, pixel_1_i32);
+
+        const pixels_1_f32 = new Float32Array(w * h)
+        gl.readPixels(0, 0, w, h, gl.RED, gl.FLOAT, pixels_1_f32);
+        let maxR = -Infinity
+        for(let i = 0; i < pixels_1_f32.length; i++) maxR = Math.max(maxR, pixels_1_f32[i])
+        console.log('Max number of time a single pixel has been updated (layers):', maxR)
     }
 
     runSort(viewProj) {
