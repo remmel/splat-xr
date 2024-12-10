@@ -64,6 +64,25 @@ class SplatsRenderer:
         screen_points = clip_points[:, :2] / w
         depths = cam_points[:, 2]
 
+        # Add frustum culling optimization
+        clip = 1.2 * w.squeeze()  # same as shader's clip calculation
+        valid_points = ~(
+                (clip_points[:, 2] < -clip) |  # z < -clip
+                (clip_points[:, 0] < -clip) |  # x < -clip
+                (clip_points[:, 0] > clip) |  # x > clip
+                (clip_points[:, 1] < -clip) |  # y < -clip
+                (clip_points[:, 1] > clip)  # y > clip
+        )
+
+        # Update arrays to only include valid points
+        positions = positions[valid_points]
+        scales = scales[valid_points]
+        rots = rots[valid_points]
+        colors = colors[valid_points]
+        screen_points = screen_points[valid_points]
+        depths = depths[valid_points]
+
+
         vrk = self.compute_cov3d(scales, rots)
         focal = np.array([focal_length, focal_length])
 
