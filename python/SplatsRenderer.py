@@ -81,11 +81,11 @@ class SplatsRenderer:
 
 
         # Compute eigenvalues and vectors for all points
-        eigvals_all, eigvecs_all = np.linalg.eigh(cov2d)
+        lambdas, diagonalVecs = np.linalg.eigh(cov2d)
 
         # Compute axes
-        major_axes = np.minimum(np.sqrt(2 * eigvals_all[:, 1, None]), 1024) * eigvecs_all[:, :, 1]
-        minor_axes = np.minimum(np.sqrt(2 * eigvals_all[:, 0, None]), 1024) * eigvecs_all[:, :, 0]
+        major_axes = np.minimum(np.sqrt(2 * lambdas[:, 1, None]), 1024) * diagonalVecs[:, :, 1]
+        minor_axes = np.minimum(np.sqrt(2 * lambdas[:, 0, None]), 1024) * diagonalVecs[:, :, 0] #FIXME different calculation
 
         # Setup rendering buffers
         image = np.zeros((viewport.height, viewport.width, 3), dtype=np.float32)
