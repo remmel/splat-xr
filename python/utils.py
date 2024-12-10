@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 import numpy as np
 import glm
+from contextlib import contextmanager
+import time
 
 
 @dataclass
@@ -22,3 +24,9 @@ def glm_to_numpy(glm_matrix):
 
 def numpy_to_glm(np_matrix):
     return glm.mat4(*[np_matrix[i][j] for i in range(4) for j in range(4)])
+
+@contextmanager
+def timer(name):
+    start = time.time()
+    yield
+    print(f"{name}: {time.time() - start:.4f} seconds")

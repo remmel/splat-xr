@@ -1,6 +1,6 @@
 import numpy as np
 
-from python.utils import Viewport
+from python.utils import Viewport, timer
 
 
 class SplatsRenderer:
@@ -40,57 +40,76 @@ class SplatsRenderer:
         M = R @ S
         return M @ M.T
 
-    def render(self, view_matrix, proj, viewport: Viewport, focal_length):
+    def compute_covariances(self, scales, rots):
+        qx, qy, qz, qw = rots.T
+
+        R = np.array([
+            [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qw * qz), 2 * (qx * qz + qw * qy)],
+            [2 * (qx * qy + qw * qz), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qw * qx)],
+            [2 * (qx * qz - qw * qy), 2 * (qy * qz + qw * qx), 1 - 2 * (qx * qx + qy * qy)]
+        ]).transpose(2, 0, 1)
+
+        S = scales.reshape(-1, 3, 1) * np.eye(3)
+        M = R @ S
+        return M @ M.transpose(0, 2, 1)
+
+    def render(self, view, proj, viewport: Viewport, focal_length):
         positions, scales, rots, colors = self.points
 
-        # Transform to camera space
+        # Transform all points
         points_homo = np.hstack([positions, np.ones((len(positions), 1))])
-        cam_points = (view_matrix @ points_homo.T).T
-
-        # Project to screen space
+        cam_points = (view @ points_homo.T).T
         clip_points = (proj @ cam_points.T).T
         w = clip_points[:, 3:4]
         screen_points = clip_points[:, :2] / w
         depths = cam_points[:, 2]
 
-        # Create image buffers
+        # Pre-compute all covariances
+        cov3d_all = np.array([self.compute_covariance(scales[i], rots[i]) for i in range(len(scales))])
+
+        # cov3d_all2 = self.compute_covariances(scales, rots)
+        focal = np.array([focal_length, focal_length])
+
+        # Compute Jacobians for all points
+        J_all = np.array([[
+            [focal[0] / depths[i], 0, -focal[0] * cam_points[i, 0] / (depths[i] * depths[i])],
+            [0, -focal[1] / depths[i], focal[1] * cam_points[i, 1] / (depths[i] * depths[i])]
+        ] for i in range(len(depths))])
+
+        # Compute 2D covariances
+        cov2d_all = np.array([J_all[i] @ cov3d_all[i] @ J_all[i].T for i in range(len(J_all))])
+
+        # Compute eigenvalues and vectors for all points
+        eigvals_all = []
+        eigvecs_all = []
+        for cov in cov2d_all:
+            eigvals, eigvecs = np.linalg.eigh(cov)
+            eigvals_all.append(eigvals)
+            eigvecs_all.append(eigvecs)
+        eigvals_all = np.array(eigvals_all)
+        eigvecs_all = np.array(eigvecs_all)
+
+        # Compute axes
+        major_axes = np.minimum(np.sqrt(2 * eigvals_all[:, 1, None]), 1024) * eigvecs_all[:, :, 1]
+        minor_axes = np.minimum(np.sqrt(2 * eigvals_all[:, 0, None]), 1024) * eigvecs_all[:, :, 0]
+
+        # Setup rendering buffers
         image = np.zeros((viewport.height, viewport.width, 3), dtype=np.float32)
         alpha = np.zeros((viewport.height, viewport.width), dtype=np.float32)
 
         # Sort by depth
         indices = np.argsort(-depths)
-
-        # Compute focal vector
-        focal = np.array([focal_length, focal_length])
+        #indices[0] == 100053
 
         for idx in indices:
-            # Compute 2D covariance
-            cov3d = self.compute_covariance(scales[idx], rots[idx])
-            depth = depths[idx]
-
-            J = np.array([
-                [focal[0] / depth, 0, -focal[0] * cam_points[idx, 0] / (depth * depth)],
-                [0, -focal[1] / depth, focal[1] * cam_points[idx, 1] / (depth * depth)]
-            ])
-
-            cov2d = J @ cov3d @ J.T
-
-            # Compute eigenvalues and vectors
-            eigvals, eigvecs = np.linalg.eigh(cov2d)
-
-            # Compute major and minor axes
-            major_axis = np.minimum(np.sqrt(2 * eigvals[1]), 1024) * eigvecs[:, 1]
-            minor_axis = np.minimum(np.sqrt(2 * eigvals[0]), 1024) * eigvecs[:, 0]
-
-            # Generate gaussian splat
             center = ((screen_points[idx] + 1) * viewport.width / 2).astype(int)
-            radius = int(np.max([np.linalg.norm(major_axis), np.linalg.norm(minor_axis)]))
+            radius = int(np.max([np.linalg.norm(major_axes[idx]), np.linalg.norm(minor_axes[idx])]))
 
             y, x = np.ogrid[-radius:radius + 1, -radius:radius + 1]
             pos = np.column_stack((x.flatten(), y.flatten()))
 
-            # Transform positions to eigen space
-            transformed_pos = pos @ np.column_stack((major_axis / viewport.width, minor_axis / viewport.height))
+            transformed_pos = pos @ np.column_stack(
+                (major_axes[idx] / viewport.width, minor_axes[idx] / viewport.height))
             gaussian = np.exp(-np.sum(transformed_pos ** 2, axis=1))
 
             valid_mask = gaussian > 0.01
@@ -103,15 +122,13 @@ class SplatsRenderer:
                 gaussian = gaussian[valid_mask][valid_px]
                 color = colors[idx]
 
-                # Alpha blending
                 for p, g in zip(positions, gaussian):
                     x, y = p
                     a = g * color[3]
                     curr_alpha = alpha[y, x]
                     new_alpha = curr_alpha + a * (1 - curr_alpha)
                     if new_alpha > 0:
-                        image[y, x] = (image[y, x] * curr_alpha + color[:3] * a * (1 - curr_alpha)) / new_alpha #antimatter gl.ONE_MINUS_DST_ALPHA, gl.ONE
-                        # image[y, x] = image[y, x] * (1 - curr_alpha) + color[:3] * curr_alpha # gl.ONE, gl.ONE_MINUS_DST_ALPHA
+                        image[y, x] = (image[y, x] * curr_alpha + color[:3] * a * (1 - curr_alpha)) / new_alpha
                     alpha[y, x] = new_alpha
 
         return (image * 255).astype(np.uint8)
