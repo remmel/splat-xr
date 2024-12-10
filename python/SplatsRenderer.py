@@ -53,6 +53,11 @@ class SplatsRenderer:
         M = R @ S
         return M @ M.transpose(0, 2, 1)
 
+    def compute_cov2d(self, J, cov3d):
+        # J: (N,2,3), cov3d: (N,3,3)
+        temp = np.einsum('nij,njk->nik', J, cov3d)  # (N,2,3)
+        return np.einsum('nij,nkj->nik', temp, J)  # (N,2,2)
+
     def render(self, view, proj, viewport: Viewport, focal_length):
         positions, scales, rots, colors = self.points
 
@@ -64,30 +69,29 @@ class SplatsRenderer:
         screen_points = clip_points[:, :2] / w
         depths = cam_points[:, 2]
 
-        # Pre-compute all covariances
-        cov3d_all = np.array([self.compute_covariance(scales[i], rots[i]) for i in range(len(scales))])
-
-        # cov3d_all2 = self.compute_covariances(scales, rots)
+        cov3d_all = self.compute_covariances(scales, rots)
         focal = np.array([focal_length, focal_length])
 
         # Compute Jacobians for all points
-        J_all = np.array([[
-            [focal[0] / depths[i], 0, -focal[0] * cam_points[i, 0] / (depths[i] * depths[i])],
-            [0, -focal[1] / depths[i], focal[1] * cam_points[i, 1] / (depths[i] * depths[i])]
-        ] for i in range(len(depths))])
+        depths_sq = depths * depths
+        fx, fy = focal
+        J = np.zeros((len(depths), 2, 3))
+        J[:, 0, 0] = fx / depths
+        J[:, 0, 2] = -fx * cam_points[:, 0] / depths_sq
+        J[:, 1, 1] = -fy / depths
+        J[:, 1, 2] = fy * cam_points[:, 1] / depths_sq
 
         # Compute 2D covariances
-        cov2d_all = np.array([J_all[i] @ cov3d_all[i] @ J_all[i].T for i in range(len(J_all))])
+        # with timer("Operation"):
+        #     cov2d_all = np.array([J[i] @ cov3d_all[i] @ J[i].T for i in range(len(J))])
+        # with timer("Operation"):
+        # np.all(cov2d_all == cov2d_all2)
+
+        cov2d_all = self.compute_cov2d(J, cov3d_all)
+
 
         # Compute eigenvalues and vectors for all points
-        eigvals_all = []
-        eigvecs_all = []
-        for cov in cov2d_all:
-            eigvals, eigvecs = np.linalg.eigh(cov)
-            eigvals_all.append(eigvals)
-            eigvecs_all.append(eigvecs)
-        eigvals_all = np.array(eigvals_all)
-        eigvecs_all = np.array(eigvecs_all)
+        eigvals_all, eigvecs_all = np.linalg.eigh(cov2d_all)
 
         # Compute axes
         major_axes = np.minimum(np.sqrt(2 * eigvals_all[:, 1, None]), 1024) * eigvecs_all[:, :, 1]
