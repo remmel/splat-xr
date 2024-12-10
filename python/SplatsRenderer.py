@@ -27,7 +27,7 @@ class SplatsRenderer:
 
         return positions, scales, rots, colors
 
-    def compute_covariance(self, scale, rot):
+    def compute_cov3d_one(self, scale, rot):
         # Convert quaternion to rotation matrix
         qx, qy, qz, qw = rot
         R = np.array([
@@ -40,7 +40,7 @@ class SplatsRenderer:
         M = R @ S
         return M @ M.T
 
-    def compute_covariances(self, scales, rots):
+    def compute_cov3d(self, scales, rots):
         qx, qy, qz, qw = rots.T
 
         R = np.array([
@@ -53,11 +53,6 @@ class SplatsRenderer:
         M = R @ S
         return M @ M.transpose(0, 2, 1)
 
-    def compute_cov2d(self, J, cov3d):
-        # J: (N,2,3), cov3d: (N,3,3)
-        temp = np.einsum('nij,njk->nik', J, cov3d)  # (N,2,3)
-        return np.einsum('nij,nkj->nik', temp, J)  # (N,2,2)
-
     def render(self, view, proj, viewport: Viewport, focal_length):
         positions, scales, rots, colors = self.points
 
@@ -69,7 +64,7 @@ class SplatsRenderer:
         screen_points = clip_points[:, :2] / w
         depths = cam_points[:, 2]
 
-        cov3d_all = self.compute_covariances(scales, rots)
+        vrk = self.compute_cov3d(scales, rots)
         focal = np.array([focal_length, focal_length])
 
         # Compute Jacobians for all points
@@ -81,17 +76,11 @@ class SplatsRenderer:
         J[:, 1, 1] = -fy / depths
         J[:, 1, 2] = fy * cam_points[:, 1] / depths_sq
 
-        # Compute 2D covariances
-        # with timer("Operation"):
-        #     cov2d_all = np.array([J[i] @ cov3d_all[i] @ J[i].T for i in range(len(J))])
-        # with timer("Operation"):
-        # np.all(cov2d_all == cov2d_all2)
-
-        cov2d_all = self.compute_cov2d(J, cov3d_all)
+        cov2d = J @ vrk @ J.transpose(0, 2, 1)
 
 
         # Compute eigenvalues and vectors for all points
-        eigvals_all, eigvecs_all = np.linalg.eigh(cov2d_all)
+        eigvals_all, eigvecs_all = np.linalg.eigh(cov2d)
 
         # Compute axes
         major_axes = np.minimum(np.sqrt(2 * eigvals_all[:, 1, None]), 1024) * eigvecs_all[:, :, 1]
