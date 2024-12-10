@@ -67,16 +67,17 @@ class SplatsRenderer:
         vrk = self.compute_cov3d(scales, rots)
         focal = np.array([focal_length, focal_length])
 
-        # Compute Jacobians for all points
         depths_sq = depths * depths
         fx, fy = focal
+        # Quicker to "bake" view in J like before?
         J = np.zeros((len(depths), 2, 3))
         J[:, 0, 0] = fx / depths
-        J[:, 0, 2] = -fx * cam_points[:, 0] / depths_sq
+        J[:, 0, 2] = -fx * positions[:, 0] / depths_sq
         J[:, 1, 1] = -fy / depths
-        J[:, 1, 2] = fy * cam_points[:, 1] / depths_sq
+        J[:, 1, 2] = fy * positions[:, 1] / depths_sq
 
-        cov2d = J @ vrk @ J.transpose(0, 2, 1)
+        T = view[:3, :3].T @ J.transpose(0, 2, 1)
+        cov2d = T.transpose(0, 2, 1) @ vrk @ T
 
 
         # Compute eigenvalues and vectors for all points
