@@ -168,8 +168,9 @@ export class RenderSplats {
 
         // Enable blending
         gl.enable(gl.BLEND)
-        gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.ONE) // antimatter
+        // gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.ONE) // antimatter
         // gl.blendFunc(gl.ONE, gl.ONE_MINUS_DST_ALPHA)
+        gl.blendFunc(gl.ONE, gl.ONE)
 
         gl.useProgram(this.program)
         gl.bindVertexArray(this.vao)

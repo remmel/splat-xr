@@ -81,12 +81,17 @@ precision highp float;
 in vec4 vColor;
 in vec2 vPosition;
 
-out vec4 fragColor;
+layout(location = 0) out vec4 fragColor;
+layout(location = 1) out float fragCount;
 
 void main () {
     float A = -dot(vPosition, vPosition);
     if (A < -4.0) discard;
     float B = exp(A) * vColor.a;
     fragColor = vec4(B * vColor.rgb, B);
+    
+    //count
+    fragColor = vec4(1.0/255.0);
+    fragCount = 1.0;
 }
 `.trim();
