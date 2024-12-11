@@ -82,7 +82,7 @@ in vec4 vColor;
 in vec2 vPosition;
 
 layout(location = 0) out vec4 fragColor;
-layout(location = 1) out float fragCount;
+layout(location = 1) out float fragDebug;
 
 void main () {
     float A = -dot(vPosition, vPosition);
@@ -92,6 +92,6 @@ void main () {
     
     //count
     fragColor = vec4(1.0/255.0);
-    fragCount = 1.0;
+    fragDebug = 1.0;
 }
 `.trim();

@@ -26,31 +26,21 @@ export class RenderSplatsDebug extends RenderSplats{
         this.fbo = gl.createFramebuffer()
         gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo)
 
-        const textureColor0 = gl.createTexture()
-        gl.bindTexture(gl.TEXTURE_2D, textureColor0)
+        // canvas color texture
+        const textureColor = gl.createTexture()
+        gl.bindTexture(gl.TEXTURE_2D, textureColor)
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, textureColor0, 0)
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, textureColor, 0)
 
-        // gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 0, 0, w, h, 0); //TO DO WHAT?
-
-        const textureCount = gl.createTexture()
-        gl.bindTexture(gl.TEXTURE_2D, textureCount)
-        // gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null) // default
-
-        // using `fragCount` KO: blending seems to be  ignored (color OK)
-        // gl.texImage2D(gl.TEXTURE_2D, 0,
-        //     gl.R32I, //internalformat
-        //     w, h, 0,
-        //     gl.RED_INTEGER,//format
-        //     gl.INT, //type
-        //     null);
+        // debug texture
+        const textureDebug = gl.createTexture()
+        gl.bindTexture(gl.TEXTURE_2D, textureDebug)
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, w, h, 0, gl.RED, gl.FLOAT, null)
-
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, textureCount, 0)
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, textureDebug, 0)
 
         gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1])
 
@@ -64,6 +54,8 @@ export class RenderSplatsDebug extends RenderSplats{
 
     renderFramebuffer(){
         const gl = this.gl, w = gl.canvas.width, h = gl.canvas.height
+
+        // attachement0 referring to `fragColor` / canvas
         gl.readBuffer(gl.COLOR_ATTACHMENT0);
         const pixels = new Uint8Array(4);
         gl.readPixels(w/2, h/2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
@@ -80,22 +72,23 @@ export class RenderSplatsDebug extends RenderSplats{
         );
 
 
-        // attachment1 referring to `fragCount`
-
+        // attachment1 referring to `fragDebug`
         gl.readBuffer(gl.COLOR_ATTACHMENT1)
 
         const pixel_1_f32 = new Float32Array(1)
         gl.readPixels(w/2, h/2, 1, 1, gl.RED, gl.FLOAT, pixel_1_f32)
         console.log(`COLOR_ATTACHMENT1:`, pixel_1_f32);
 
-        // const pixel_1_i32 = new Int32Array(1)
-        // gl.readPixels(w/2, h/2, 1, 1, gl.RED_INTEGER, gl.INT, pixel_1_i32)
-        // console.log(`COLOR_ATTACHMENT1:`, pixel_1_i32);
-
         const pixels_1_f32 = new Float32Array(w * h)
         gl.readPixels(0, 0, w, h, gl.RED, gl.FLOAT, pixels_1_f32);
-        let maxR = -Infinity
-        for(let i = 0; i < pixels_1_f32.length; i++) maxR = Math.max(maxR, pixels_1_f32[i])
+        let maxR = maxArray(pixels_1_f32)
         console.log('Max number of time a single pixel has been updated (layers):', maxR)
     }
+}
+
+function maxArray(arr) {
+    //handle huge array and avoiding `Uncaught (in promise) RangeError: Maximum call stack size exceeded`
+    let maxVal = -Infinity
+    for(let i = 0; i < arr.length; i++) maxVal = Math.max(maxVal, arr[i])
+    return maxVal
 }
