@@ -1,4 +1,5 @@
 import numpy as np
+import scipy
 
 from python.utils import Viewport, timer
 
@@ -56,6 +57,7 @@ class SplatsRenderer:
 
     def render(self, view, proj, viewport: Viewport, focal_length):
         positions, scales, rots, colors = self.points
+        uViewport = np.array([viewport.width, viewport.height]) # TODO remove viewport class
 
         # Transform all points - (proj @ cam.T).T[70802, :] == (proj @ cam[70802, :])
         positions_v4 = np.hstack([positions, np.ones((len(positions), 1))])
@@ -80,8 +82,6 @@ class SplatsRenderer:
         # pos2d = pos2d[in_frustum]
         # cam = cam[in_frustum]
 
-        w = pos2d[:, 3:4]
-        screen_points = pos2d[:, :2] / w
         depths = cam[:, 2]
 
         vrk = self.compute_cov3d(scales, rots) #(n,3,3)}
@@ -107,6 +107,11 @@ class SplatsRenderer:
         major_axes = np.minimum(np.sqrt(2 * lambdas[:, 1, None]), 1024) * diagonalVecs[:, :, 1]
         minor_axes = -1 * np.minimum(np.sqrt(2 * lambdas[:, 0, None]), 1024) * diagonalVecs[:, :, 0] #FIXME different calculation
 
+        center_f = pos2d[:, :2] / pos2d[:, 3:4] # position in screen coords
+        means2D = center_px_all = ((center_f + 1) * uViewport / 2).astype(int)
+
+        # a_pos = np.array([2.0,2.0])
+
         # Setup rendering buffers
         image = np.zeros((viewport.height, viewport.width, 3), dtype=np.float32)
         alpha = np.zeros((viewport.height, viewport.width), dtype=np.float32)
@@ -114,35 +119,78 @@ class SplatsRenderer:
         # Sort by depth
         indices = np.argsort(-depths)
         #indices[0] == 100053
+        # radii = get_radius(cov2d)
+        # rect = get_rect(center_px_all, radii, viewport.width, viewport.height)
+
 
         for idx in indices:
-            center = ((screen_points[idx] + 1) * viewport.width / 2).astype(int)
-            radius = int(np.max([np.linalg.norm(major_axes[idx]), np.linalg.norm(minor_axes[idx])]))
+            # rect_min_x, rect_min_y = rect_min[idx, :]
+            # rect_max_x, rect_max_y = rect_max[idx, :]
+            # image[int(rect_min_x), int(rect_min_y)] = np.array(colors[idx][:3])
+            # image[int(rect_max_x), int(rect_max_y)] = np.array(colors[idx][:3])
 
-            y, x = np.ogrid[-radius:radius + 1, -radius:radius + 1]
-            pos = np.column_stack((x.flatten(), y.flatten()))
+            for a_pos in np.array([[-2,-2], [2,-2], [2,2], [-2,2]]):
+                gl_Position = (center_f[idx, :]
+                        + a_pos[0] * major_axes[idx, :] / uViewport
+                        + a_pos[1] * minor_axes[idx, :] / uViewport)
 
-            transformed_pos = pos @ np.column_stack(
-                (major_axes[idx] / viewport.width, minor_axes[idx] / viewport.height))
-            gaussian = np.exp(-np.sum(transformed_pos ** 2, axis=1))
+                gl_Position_px = ((gl_Position + 1) * uViewport / 2).astype(int)
 
-            valid_mask = gaussian > 0.01
-            positions = center + pos[valid_mask]
-            valid_px = (positions[:, 0] >= 0) & (positions[:, 0] < viewport.width) & \
-                       (positions[:, 1] >= 0) & (positions[:, 1] < viewport.height)
+                if(np.all(gl_Position_px >= 0) and np.all(gl_Position_px < uViewport)):
+                    x,y=gl_Position_px
+                    image[x,y] = np.array(colors[idx][:3])
 
-            if np.any(valid_px):
-                positions = positions[valid_px]
-                gaussian = gaussian[valid_mask][valid_px]
-                color = colors[idx]
 
-                for p, g in zip(positions, gaussian):
-                    x, y = p
-                    a = g * color[3]
-                    curr_alpha = alpha[y, x]
-                    new_alpha = curr_alpha + a * (1 - curr_alpha)
-                    if new_alpha > 0:
-                        image[y, x] = (image[y, x] * curr_alpha + color[:3] * a * (1 - curr_alpha)) / new_alpha
-                    alpha[y, x] = new_alpha
+
+
+
+
+            # center_px = center_px_all[idx, :]
+            # radius = int(np.max([np.linalg.norm(major_axes[idx]), np.linalg.norm(minor_axes[idx])]))
+            #
+            # y, x = np.ogrid[-radius:radius + 1, -radius:radius + 1]
+            # pos = np.column_stack((x.flatten(), y.flatten()))
+            #
+            # transformed_pos = pos @ np.column_stack(
+            #     (major_axes[idx] / viewport.width, minor_axes[idx] / viewport.height))
+            # gaussian = np.exp(-np.sum(transformed_pos ** 2, axis=1))
+            #
+            # valid_mask = gaussian > 0.05
+            # positions = center_px + pos[valid_mask]
+            # valid_px = (positions[:, 0] >= 0) & (positions[:, 0] < viewport.width) & \
+            #            (positions[:, 1] >= 0) & (positions[:, 1] < viewport.height)
+            #
+            # if np.any(valid_px):
+            #     positions = positions[valid_px]
+            #     gaussian = gaussian[valid_mask][valid_px]
+            #     color = colors[idx]
+            #
+            #     for p, g in zip(positions, gaussian):
+            #         x, y = p
+            #         a = g * color[3]
+            #         curr_alpha = alpha[y, x]
+            #         # new_alpha = curr_alpha + a * (1 - curr_alpha)
+            #         # if new_alpha > 0:
+            #         #     image[y, x] = (image[y, x] * curr_alpha + color[:3] * a * (1 - curr_alpha)) / new_alpha
+            #         # alpha[y, x] = new_alpha
+            #         image[y, x] = np.array(color[:3])
 
         return (image * 255).astype(np.uint8)
+
+
+def get_rect(pix_coord, radii, width, height):
+    rect_min = (pix_coord - radii[:,None])
+    rect_max = (pix_coord + radii[:,None])
+    rect_min[..., 0] = rect_min[..., 0].clip(0, width - 1.0)
+    rect_min[..., 1] = rect_min[..., 1].clip(0, height - 1.0)
+    rect_max[..., 0] = rect_max[..., 0].clip(0, width - 1.0)
+    rect_max[..., 1] = rect_max[..., 1].clip(0, height - 1.0)
+    return rect_min, rect_max
+
+
+def get_radius(cov2d):
+    det = cov2d[:, 0, 0] * cov2d[:,1,1] - cov2d[:, 0, 1] * cov2d[:,1,0]
+    mid = 0.5 * (cov2d[:, 0,0] + cov2d[:,1,1])
+    lambda1 = mid + np.sqrt(np.clip(mid**2-det, a_min=0.1, a_max=None))
+    lambda2 = mid - np.sqrt(np.clip(mid**2-det, a_min=0.1, a_max=None))
+    return np.ceil(3.0 * np.sqrt(np.maximum(lambda1, lambda2)))
