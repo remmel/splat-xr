@@ -29,7 +29,7 @@ class SplatsRenderer:
 
     def compute_cov3d_one(self, scale, rot):
         # Convert quaternion to rotation matrix
-        qx, qy, qz, qw = rot
+        qw, qx, qy, qz = rot
         R = np.array([
             [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qw * qz), 2 * (qx * qz + qw * qy)],
             [2 * (qx * qy + qw * qz), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qw * qx)],
@@ -38,11 +38,11 @@ class SplatsRenderer:
 
         S = np.diag(scale)
         M = R @ S
-        return M @ M.T
+        res = M @ M.T
+        return res * 4
 
     def compute_cov3d(self, scales, rots):
-        qx, qy, qz, qw = rots.T
-
+        qw, qx, qy, qz = rots.T
         R = np.array([
             [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qw * qz), 2 * (qx * qz + qw * qy)],
             [2 * (qx * qy + qw * qz), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qw * qx)],
@@ -51,39 +51,40 @@ class SplatsRenderer:
 
         S = scales.reshape(-1, 3, 1) * np.eye(3)
         M = R @ S
-        return M @ M.transpose(0, 2, 1)
+        res = M @ M.transpose(0, 2, 1)
+        return res * 4
 
     def render(self, view, proj, viewport: Viewport, focal_length):
         positions, scales, rots, colors = self.points
 
-        # Transform all points
-        points_homo = np.hstack([positions, np.ones((len(positions), 1))])
-        cam_points = (view @ points_homo.T).T
-        clip_points = (proj @ cam_points.T).T
-        w = clip_points[:, 3:4]
-        screen_points = clip_points[:, :2] / w
-        depths = cam_points[:, 2]
+        # Transform all points - (proj @ cam.T).T[70802, :] == (proj @ cam[70802, :])
+        positions_v4 = np.hstack([positions, np.ones((len(positions), 1))])
+        cam = (view @ positions_v4.T).T #cam = uView * center
+        pos2d = (proj @ cam.T).T
 
         # Add frustum culling optimization
-        clip = 1.2 * w.squeeze()  # same as shader's clip calculation
-        valid_points = ~(
-                (clip_points[:, 2] < -clip) |  # z < -clip
-                (clip_points[:, 0] < -clip) |  # x < -clip
-                (clip_points[:, 0] > clip) |  # x > clip
-                (clip_points[:, 1] < -clip) |  # y < -clip
-                (clip_points[:, 1] > clip)  # y > clip
+        clip = 1.2 * pos2d[:, 3]
+        in_frustum = ~(
+                (pos2d[:, 2] < -clip) |  # z < -clip
+                (pos2d[:, 0] < -clip) |  # x < -clip
+                (pos2d[:, 0] > clip) |  # x > clip
+                (pos2d[:, 1] < -clip) |  # y < -clip
+                (pos2d[:, 1] > clip)  # y > clip
         )
 
         # Update arrays to only include valid points
-        positions = positions[valid_points]
-        scales = scales[valid_points]
-        rots = rots[valid_points]
-        colors = colors[valid_points]
-        screen_points = screen_points[valid_points]
-        depths = depths[valid_points]
+        # positions = positions[in_frustum]
+        # scales = scales[in_frustum]
+        # rots = rots[in_frustum]
+        # colors = colors[in_frustum]
+        # pos2d = pos2d[in_frustum]
+        # cam = cam[in_frustum]
 
+        w = pos2d[:, 3:4]
+        screen_points = pos2d[:, :2] / w
+        depths = cam[:, 2]
 
-        vrk = self.compute_cov3d(scales, rots)
+        vrk = self.compute_cov3d(scales, rots) #(n,3,3)}
         focal = np.array([focal_length, focal_length])
 
         depths_sq = depths * depths
@@ -104,7 +105,7 @@ class SplatsRenderer:
 
         # Compute axes
         major_axes = np.minimum(np.sqrt(2 * lambdas[:, 1, None]), 1024) * diagonalVecs[:, :, 1]
-        minor_axes = np.minimum(np.sqrt(2 * lambdas[:, 0, None]), 1024) * diagonalVecs[:, :, 0] #FIXME different calculation
+        minor_axes = -1 * np.minimum(np.sqrt(2 * lambdas[:, 0, None]), 1024) * diagonalVecs[:, :, 0] #FIXME different calculation
 
         # Setup rendering buffers
         image = np.zeros((viewport.height, viewport.width, 3), dtype=np.float32)

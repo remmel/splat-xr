@@ -25,7 +25,7 @@ class PointsRenderer:
 
         return np.hstack([positions, colors])
 
-    def render(self, view_matrix, proj, viewport: Viewport):
+    def render(self, view_matrix, proj, viewport: Viewport, f):
         # Transform points
         points = self.points[:, :3]  # xyz coordinates
         colors = self.points[:, 3:]  # rgba values
