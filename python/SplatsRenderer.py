@@ -117,7 +117,7 @@ class SplatsRenderer:
         alpha = np.zeros((viewport.height, viewport.width), dtype=np.float32)
 
         # Sort by depth
-        indices = np.argsort(-depths)
+        indices = np.argsort(depths) #or -depth?
         #indices[0] == 100053
         # radii = get_radius(cov2d)
         # (rect_min0, rect_max0) = get_rect(center_px_all, radii, viewport.width, viewport.height)
@@ -172,11 +172,16 @@ class SplatsRenderer:
 
                     # Blend ONE_MINUS_DST_ALPHA, ONE
                     dst_alpha = alpha[x, y]
-                    image[x,y] = image[x,y] + color_ * (1- dst_alpha)
+                    dst_color = image[x,y]
+
+                    if(dst_alpha >= 1): continue #correct?  accumulated, see indices creation
+                    # if (x == 478 and y == 478):
+                    #     print(1)
+                    image[x,y] = dst_color + color_ * (1- dst_alpha)
                     alpha[x,y] = alpha[x,y] + alpha_
 
-                    # if (x == 462 and y == 462):
-                    #     print(image[x,y])
+                    # if (x == 478 and y == 478):
+                    #     print(image[x,y], alpha[x,y])
 
 
 
