@@ -53,7 +53,7 @@ class SplatsRenderer:
         S = scales.reshape(-1, 3, 1) * np.eye(3)
         M = R @ S
         res = M @ M.transpose(0, 2, 1)
-        return res * 4
+        return res
 
     def render(self, view, proj, viewport: Viewport, focal_length):
         positions, scales, rots, colors = self.points
@@ -84,7 +84,7 @@ class SplatsRenderer:
 
         depths = cam[:, 2]
 
-        vrk = self.compute_cov3d(scales, rots) #(n,3,3)}
+        vrk = 4 * self.compute_cov3d(scales, rots) #(n,3,3)}
         focal = np.array([focal_length, focal_length])
 
         depths_sq = depths * depths
@@ -120,25 +120,76 @@ class SplatsRenderer:
         indices = np.argsort(-depths)
         #indices[0] == 100053
         # radii = get_radius(cov2d)
-        # rect = get_rect(center_px_all, radii, viewport.width, viewport.height)
+        # (rect_min0, rect_max0) = get_rect(center_px_all, radii, viewport.width, viewport.height)
 
+        # gl_Position = (center_f[idx_expanded] +  # Shape: (N, 1, 2)
+        #                a_pos_expanded[..., 0] * major_axes[idx_expanded] / uViewport +  # Shape: (N, 4, 2)
+        #                a_pos_expanded[..., 1] * minor_axes[idx_expanded] / uViewport)
+
+        a_positions = np.array([[-2,-2], [2,-2], [2,2], [-2,2]])
+
+        nb_splats = center_f.shape[0]
+        nb_quads = len(a_positions) #4
+        nb_xy = center_f.shape[1]# tuple x,y
+        gl_Positions = np.zeros((nb_splats, nb_quads, nb_xy)) #(99,4,2)
+        rect_min = rect_max = np.zeros((center_f.shape[0], nb_xy)) #(99,2)
+        for i in np.arange(len(a_positions)):
+            gl_Position = (center_f
+                           + a_positions[i][0] * major_axes / uViewport
+                           + a_positions[i][1] * minor_axes / uViewport) #(99,2)
+            gl_Position_px = ((gl_Position + 1) * uViewport / 2).astype(int)
+            gl_Positions[:, i, :] = gl_Position_px
+
+        rect_min = gl_Positions.min(axis=1).astype(int) #(99,2)
+        rect_max = gl_Positions.max(axis=1).astype(int) #(99,2)
+
+
+        # for idx in indices:
+        #     for gl_Position_px in gl_Positions[idx, :]:
+        #         # gl_Position_px = ((gl_Position + 1) * uViewport / 2).astype(int)
+        #         x,y=gl_Position_px
+        #         image[int(x),int(y)] = np.array(colors[idx][:3])
 
         for idx in indices:
+            min_x, min_y = rect_min[idx, :]
+            max_x, max_y = rect_max[idx, :]
+
+            for x in range(min_x, max_x):
+                for y in range(min_y, max_y):
+                    dx = (x - center_px_all[idx, 0]) / ((max_x - min_x)/2) * 2 #*2 because quad2 ?
+                    dy = (y - center_px_all[idx, 1]) / ((max_y - min_y)/2) * 2
+
+                    vPosition = np.array([dx, dy])
+
+                    A = -np.dot(vPosition, vPosition) #-(dx**2+dy**2)
+                    if A < -4.0: continue
+                    B = np.exp(A) * colors[idx][3]
+
+                    color_ = np.array(colors[idx][:3]) * B
+                    alpha_ = B
+
+
+
+                    # Blend ONE_MINUS_DST_ALPHA, ONE
+                    dst_alpha = alpha[x, y]
+                    image[x,y] = image[x,y] + color_ * (1- dst_alpha)
+                    alpha[x,y] = alpha[x,y] + alpha_
+
+                    # if (x == 462 and y == 462):
+                    #     print(image[x,y])
+
+
+
+
+        # print(1)
+
+
+
+
             # rect_min_x, rect_min_y = rect_min[idx, :]
             # rect_max_x, rect_max_y = rect_max[idx, :]
             # image[int(rect_min_x), int(rect_min_y)] = np.array(colors[idx][:3])
             # image[int(rect_max_x), int(rect_max_y)] = np.array(colors[idx][:3])
-
-            for a_pos in np.array([[-2,-2], [2,-2], [2,2], [-2,2]]):
-                gl_Position = (center_f[idx, :]
-                        + a_pos[0] * major_axes[idx, :] / uViewport
-                        + a_pos[1] * minor_axes[idx, :] / uViewport)
-
-                gl_Position_px = ((gl_Position + 1) * uViewport / 2).astype(int)
-
-                if(np.all(gl_Position_px >= 0) and np.all(gl_Position_px < uViewport)):
-                    x,y=gl_Position_px
-                    image[x,y] = np.array(colors[idx][:3])
 
 
 
