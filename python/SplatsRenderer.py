@@ -129,13 +129,6 @@ class SplatsRenderer:
         rect_min = gl_Positions.min(axis=1).astype(int) #(99,2)
         rect_max = gl_Positions.max(axis=1).astype(int) #(99,2)
 
-
-        # for idx in indices:
-        #     for gl_Position_px in gl_Positions[idx, :]:
-        #         # gl_Position_px = ((gl_Position + 1) * uViewport / 2).astype(int)
-        #         x,y=gl_Position_px
-        #         image[int(x),int(y)] = np.array(colors[idx][:3])
-
         for idx in indices:
             min_x, min_y = rect_min[idx, :]
             max_x, max_y = rect_max[idx, :]
@@ -143,7 +136,7 @@ class SplatsRenderer:
             if(not in_frustum[idx]): continue
 
             valid_rect = min_x > 0 and min_y > 0 and max_x < viewport.width and max_y < viewport.height
-            if(not valid_rect): continue #TODO handle that better, to avoid loosing edge splats
+            if not valid_rect: continue #TODO handle that better, to avoid loosing edge splats
 
             quad_shape = (max_y-min_y, max_x-min_x)
 
@@ -165,6 +158,9 @@ class SplatsRenderer:
             # Calculate color and alpha
             frag_rgb = colors[idx][:3] * B[:, :, np.newaxis]
             frag_alpha = B
+
+            # frag_rgb[:, :] = [1, 0, 0]
+            # frag_alpha[:, :] = 1
 
             # Get current values for the region
             region_alpha = img_alpha[min_y:max_y, min_x:max_x] #dst_alpha
@@ -188,7 +184,13 @@ class SplatsRenderer:
             img_rgb[min_y:max_y, min_x:max_x] = region_rgb
             img_alpha[min_y:max_y, min_x:max_x] = region_alpha
 
-        return (img_rgb * 255).astype(np.uint8)
+        # img_rgba = np.zeros((viewport.height, viewport.width, 4), dtype=np.float32)
+        # img_rgba[..., :3] = img_rgb
+        # img_rgba[..., 3] = img_alpha
+        img_rgba = img_rgb
+        img_rgba = img_rgba[::-1, :]  # image origin was top-left so flip y axis
+
+        return (np.clip(img_rgba, 0, 1) * 255).astype(np.uint8)
 
 
 def get_rect(pix_coord, radii, width, height):

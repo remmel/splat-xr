@@ -113,8 +113,8 @@ class SplatsRendererLoop:
         # a_pos = np.array([2.0,2.0])
 
         # Setup rendering buffers
-        image = np.zeros((viewport.height, viewport.width, 3), dtype=np.float32)
-        alpha = np.zeros((viewport.height, viewport.width), dtype=np.float32)
+        img_rgb = np.zeros((viewport.height, viewport.width, 3), dtype=np.float32)
+        img_alpha = np.zeros((viewport.height, viewport.width), dtype=np.float32)
 
         # Sort by depth
         indices = np.argsort(depths) #or -depth?
@@ -154,6 +154,11 @@ class SplatsRendererLoop:
             min_x, min_y = rect_min[idx, :]
             max_x, max_y = rect_max[idx, :]
 
+            if (not in_frustum[idx]): continue
+
+            valid_rect = min_x > 0 and min_y > 0 and max_x < viewport.width and max_y < viewport.height
+            if not valid_rect: continue  # TODO handle that better, to avoid loosing edge splats
+
             for x in range(min_x, max_x):
                 for y in range(min_y, max_y):
                     dx = (x - center_px_all[idx, 0]) / ((max_x - min_x)/2) * 2 #*2 because quad2 ?
@@ -171,14 +176,14 @@ class SplatsRendererLoop:
 
 
                     # Blend ONE_MINUS_DST_ALPHA, ONE
-                    dst_alpha = alpha[x, y]
-                    dst_color = image[x,y]
+                    dst_alpha = img_alpha[y, x]
+                    dst_color = img_rgb[y, x]
 
                     if(dst_alpha >= 1): continue #correct?  accumulated, see indices creation
                     # if (x == 478 and y == 478):
                     #     print(1)
-                    image[x,y] = dst_color + color_ * (1- dst_alpha)
-                    alpha[x,y] = alpha[x,y] + alpha_
+                    img_rgb[y, x] = dst_color + color_ * (1 - dst_alpha)
+                    img_alpha[y, x] = img_alpha[y, x] + alpha_
 
                     # if (x == 478 and y == 478):
                     #     print(image[x,y], alpha[x,y])
@@ -186,52 +191,12 @@ class SplatsRendererLoop:
 
 
 
-        # print(1)
+        img_rgba = np.zeros((viewport.height, viewport.width, 4), dtype=np.float32)
+        img_rgba[..., :3] = img_rgb
+        img_rgba[..., 3] = img_alpha
+        img_rgba = img_rgba[::-1, :] # image origin was top-left so flip y axis
 
-
-
-
-            # rect_min_x, rect_min_y = rect_min[idx, :]
-            # rect_max_x, rect_max_y = rect_max[idx, :]
-            # image[int(rect_min_x), int(rect_min_y)] = np.array(colors[idx][:3])
-            # image[int(rect_max_x), int(rect_max_y)] = np.array(colors[idx][:3])
-
-
-
-
-
-
-            # center_px = center_px_all[idx, :]
-            # radius = int(np.max([np.linalg.norm(major_axes[idx]), np.linalg.norm(minor_axes[idx])]))
-            #
-            # y, x = np.ogrid[-radius:radius + 1, -radius:radius + 1]
-            # pos = np.column_stack((x.flatten(), y.flatten()))
-            #
-            # transformed_pos = pos @ np.column_stack(
-            #     (major_axes[idx] / viewport.width, minor_axes[idx] / viewport.height))
-            # gaussian = np.exp(-np.sum(transformed_pos ** 2, axis=1))
-            #
-            # valid_mask = gaussian > 0.05
-            # positions = center_px + pos[valid_mask]
-            # valid_px = (positions[:, 0] >= 0) & (positions[:, 0] < viewport.width) & \
-            #            (positions[:, 1] >= 0) & (positions[:, 1] < viewport.height)
-            #
-            # if np.any(valid_px):
-            #     positions = positions[valid_px]
-            #     gaussian = gaussian[valid_mask][valid_px]
-            #     color = colors[idx]
-            #
-            #     for p, g in zip(positions, gaussian):
-            #         x, y = p
-            #         a = g * color[3]
-            #         curr_alpha = alpha[y, x]
-            #         # new_alpha = curr_alpha + a * (1 - curr_alpha)
-            #         # if new_alpha > 0:
-            #         #     image[y, x] = (image[y, x] * curr_alpha + color[:3] * a * (1 - curr_alpha)) / new_alpha
-            #         # alpha[y, x] = new_alpha
-            #         image[y, x] = np.array(color[:3])
-
-        return (image * 255).astype(np.uint8)
+        return (np.clip(img_rgba, 0, 1) * 255).astype(np.uint8)
 
 
 def get_rect(pix_coord, radii, width, height):
