@@ -172,21 +172,8 @@ class SplatsRendererLoop:
                     if A < -4.0: continue
                     B = np.exp(A) * colors[idx][3]
 
-                    frag_rgb = np.array(colors[idx][:3]) * B
-                    frag_alpha = B
-
-                    # no premult
-                    # img_rgb[y, x] = frag_rgb
-
-                    # premult
-                    # Premultiply RGB by alpha
-                    premult_color = np.zeros(4, dtype=np.float32)
-                    premult_color[:3] = colors[idx][:3] * frag_alpha  # Premultiply RGB by alpha
-                    premult_color[3] = frag_alpha  # Store alpha separately
-                    # Implement premultiplied alpha blending
-                    # Formula: dst = src + dst * (1 - src.a)
-                    # img_premult[y, x] = premult_color * 1 + img_premult[y, x] * (1.0 - premult_color[3])
-                    img_premult[y, x] = premult_color * (1.0 - img_premult[y, x, 3]) + img_premult[y, x]
+                    src_rgb = colors[idx][:3] * B
+                    src_alpha = B
 
                     # gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.ONE)
                     # src_rgba * (1-dst_a) + dst_rgba * 1
@@ -194,40 +181,19 @@ class SplatsRendererLoop:
                     # a =   src_a   * (1-dst_a) + dst_a   * 1
 
                     if(img_alpha[y, x] >= 1): continue #correct?  accumulated, see indices creation
-                    # if (x == 478 and y == 478):
-                    #     print(1)
+                    # Alpha blending
+                    img_rgb[y, x]   = src_rgb   * (1 - img_alpha[y, x]) + img_rgb[y,x] # src_rgb * (1-dst_a) + dst_rgb * 1
+                    img_alpha[y, x] = src_alpha * (1 - img_alpha[y, x]) + img_alpha[y,x] # src_a * (1-dst_a) + dst_a * 1
 
-                    # Alpha blending - seems wrong
-                    # img_rgb[y, x]   += frag_rgb   * (1 - img_alpha[y, x]) # src_rgb * (1-dst_a) + dst_rgb * 1
-                    # img_alpha[y, x] += frag_alpha * (1 - img_alpha[y, x]) # src_a * (1-dst_a) + dst_a * 1
+        alpha_mask = img_alpha > 0
+        img_rgb[alpha_mask] = img_rgb[alpha_mask] / img_alpha[alpha_mask, np.newaxis]
 
-                    # Alpha blending - 2nd
-                    # curr_alpha = img_alpha[y, x]
-                    # new_alpha = curr_alpha + frag_alpha * (1 - curr_alpha)
-                    # # if new_alpha > 0:
-                    # img_rgb[y, x] = (img_rgb[y, x] * curr_alpha + frag_rgb * ( 1 - curr_alpha)) / new_alpha  # antimatter gl.ONE_MINUS_DST_ALPHA, gl.ONE
-                    # img_alpha[y, x] = new_alpha
+        img_rgba = np.zeros((viewport.height, viewport.width, 4), dtype=np.float32)
+        img_rgba[..., :3] = img_rgb
+        img_rgba[..., 3] = img_alpha
 
-
-        # a548 = img_alpha[548,548]
-        # rgb548 = img_rgb[548, 548]
-
-        final_image = img_premult[::-1, :]
-        # Un-premultiply the colors for display
-        # Avoid division by zero by adding a small epsilon
-        epsilon = 1e-8
-        alpha_mask = final_image[..., 3] > epsilon
-        result = np.zeros_like(final_image)
-        result[..., 3] = final_image[..., 3]
-        result[alpha_mask, :3] = final_image[alpha_mask, :3] / (final_image[alpha_mask, 3:4] + epsilon)
-        return (np.clip(result, 0, 1) * 255).astype(np.uint8)
-
-        # return (np.clip(img_rgb[::-1, :], 0, 1) * 255).astype(np.uint8)
-        # img_rgba = np.zeros((viewport.height, viewport.width, 4), dtype=np.float32)
-        # img_rgba[..., :3] = img_rgb
-        # img_rgba[..., 3] = img_alpha
-        # img_rgba = img_rgba[::-1, :] # image origin was top-left so flip y axis
-        # return (np.clip(img_rgba, 0, 1) * 255).astype(np.uint8)
+        img_rgba = img_rgba[::-1, :] # image origin was top-left so flip y axis
+        return (np.clip(img_rgba, 0, 1) * 255).astype(np.uint8)
 
 
 def get_rect(pix_coord, radii, width, height):
