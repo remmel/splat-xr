@@ -105,7 +105,7 @@ class SplatsRendererLoop:
 
         # Compute axes
         major_axes = np.minimum(np.sqrt(2 * lambdas[:, 1, None]), 1024) * diagonalVecs[:, :, 1]
-        minor_axes = -1 * np.minimum(np.sqrt(2 * lambdas[:, 0, None]), 1024) * diagonalVecs[:, :, 0] #FIXME different calculation
+        minor_axes = np.minimum(np.sqrt(2 * lambdas[:, 0, None]), 1024) * diagonalVecs[:, :, 0] #FIXME different calculation
 
         center_f = pos2d[:, :2] / pos2d[:, 3:4] # position in screen coords
         means2D = center_px_all = ((center_f + 1) * uViewport / 2).astype(int)
@@ -120,7 +120,7 @@ class SplatsRendererLoop:
 
         # Sort by depth
         indices = np.argsort(depths) #or -depth?
-        indices = np.arange(0, len(depths))
+        # indices = np.arange(0, len(depths))
         # indices = np.arange(0, len(depths))[::-1] #reversed
         #indices[0] == 100053
         # radii = get_radius(cov2d)
@@ -186,12 +186,9 @@ class SplatsRendererLoop:
                     img_alpha[y, x] = src_alpha * (1 - img_alpha[y, x]) + img_alpha[y,x] # src_a * (1-dst_a) + dst_a * 1
 
         alpha_mask = img_alpha > 0
-        img_rgb[alpha_mask] = img_rgb[alpha_mask] / img_alpha[alpha_mask, np.newaxis]
+        img_rgb[alpha_mask] /= img_alpha[alpha_mask, np.newaxis] #unpremult
 
-        img_rgba = np.zeros((viewport.height, viewport.width, 4), dtype=np.float32)
-        img_rgba[..., :3] = img_rgb
-        img_rgba[..., 3] = img_alpha
-
+        img_rgba = np.dstack((img_rgb, img_alpha))
         img_rgba = img_rgba[::-1, :] # image origin was top-left so flip y axis
         return (np.clip(img_rgba, 0, 1) * 255).astype(np.uint8)
 

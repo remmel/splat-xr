@@ -91,7 +91,7 @@ class SplatsRenderer:
 
         # Compute axes
         major_axes = np.minimum(np.sqrt(2 * lambdas[:, 1, None]), 1024) * diagonalVecs[:, :, 1]
-        minor_axes = -1 * np.minimum(np.sqrt(2 * lambdas[:, 0, None]), 1024) * diagonalVecs[:, :, 0] #FIXME different calculation
+        minor_axes = np.minimum(np.sqrt(2 * lambdas[:, 0, None]), 1024) * diagonalVecs[:, :, 0] #FIXME different calculation
 
         center_f = pos2d[:, :2] / pos2d[:, 3:4] # position in screen coords
         means2D = center_px_all = ((center_f + 1) * uViewport / 2).astype(int)
@@ -104,6 +104,7 @@ class SplatsRenderer:
 
         # Sort by depth
         indices = np.argsort(depths) #or -depth?
+        # indices = np.arange(0, len(depths))
         #indices[0] == 100053
         # radii = get_radius(cov2d)
         # (rect_min0, rect_max0) = get_rect(center_px_all, radii, viewport.width, viewport.height)
@@ -167,8 +168,8 @@ class SplatsRenderer:
             region_rgb = img_rgb[min_y:max_y, min_x:max_x] #dst_rgb
 
             # gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.ONE)
-            # dst_rgb = src_rgb * (1-dst_a) + dst_rgb * 1
-            # dst_rgb += src_rgb * (1-dst_a)
+            # dst  = src * (1-dst_a) + dst * 1
+            # dst += src * (1-dst_a)
 
             blend_mask = (region_alpha < 1) & mask # Create mask for non-saturated pixels
 
@@ -178,18 +179,17 @@ class SplatsRenderer:
 
                 # Perform blending for valid pixels
                 region_rgb[x_idcs, y_idcs] += frag_rgb[x_idcs, y_idcs] *  (1 - region_alpha[x_idcs, y_idcs, np.newaxis])
-                region_alpha[x_idcs, y_idcs] += frag_alpha[x_idcs, y_idcs]
+                region_alpha[x_idcs, y_idcs] += frag_alpha[x_idcs, y_idcs] *  (1 - region_alpha[x_idcs, y_idcs])
 
             # Update the original arrays
             img_rgb[min_y:max_y, min_x:max_x] = region_rgb
             img_alpha[min_y:max_y, min_x:max_x] = region_alpha
 
-        # img_rgba = np.zeros((viewport.height, viewport.width, 4), dtype=np.float32)
-        # img_rgba[..., :3] = img_rgb
-        # img_rgba[..., 3] = img_alpha
-        img_rgba = img_rgb
-        img_rgba = img_rgba[::-1, :]  # image origin was top-left so flip y axis
+        alpha_mask = img_alpha > 0
+        img_rgb[alpha_mask] = img_rgb[alpha_mask] / img_alpha[alpha_mask, np.newaxis] #unpremult
 
+        img_rgba = np.dstack((img_rgb, img_alpha))
+        img_rgba = img_rgba[::-1, :] # image origin was top-left so flip y axis
         return (np.clip(img_rgba, 0, 1) * 255).astype(np.uint8)
 
 
