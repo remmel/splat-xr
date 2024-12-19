@@ -102,7 +102,7 @@ class SplatsRenderer:
         # indices = np.arange(0, len(depths))
         #indices[0] == 100053
 
-        # rect_max, rect_min = get_rect(center_f, major_axes, minor_axes, uViewport) #code using the gl_Positions
+        # calculating the rectangle (quad min & max from gl_Position) - see get_rect
         axes_f = (abs(major_axes) + abs(minor_axes)) / uViewport #from px to [0,1]
         rect_min = (((center_f + -2 * axes_f)+1)*uViewport/2).astype(int) #in px, -2 is quad min
         rect_max = (((center_f + +2 * axes_f)+1)*uViewport/2).astype(int)
@@ -159,20 +159,3 @@ class SplatsRenderer:
         img_rgba[alpha_mask, :3] /= img_rgba[alpha_mask, 3:4] # unpremult: img.rgb /= img.alpha
         img_rgba = img_rgba[::-1, :] # image origin was top-left so flip y axis
         return (np.clip(img_rgba, 0, 1) * 255).astype(np.uint8)
-
-
-# reproduce the antimatter code / opengl pipeline
-def get_rect(center_f, major_axes, minor_axes, uViewport):
-    a_positions = np.array([[-2, -2], [2, -2], [2, 2], [-2, 2]])  # quad
-    nb_splats = center_f.shape[0]
-    nb_quads = len(a_positions)  # 4
-    nb_xy = center_f.shape[1]  # tuple x,y
-    gl_Positions = np.zeros((nb_splats, nb_quads, nb_xy))  # (99,4,2)
-    for idx, a_pos in enumerate(a_positions):
-        gl_Position = (center_f
-                       + a_pos[0] * major_axes / uViewport
-                       + a_pos[1] * minor_axes / uViewport)  # (99,2)
-        gl_Position_px = ((gl_Position + 1) * uViewport / 2).astype(int)
-        gl_Positions[:, idx, :] = gl_Position_px
-    rect_min, rect_max = gl_Positions.min(axis=1).astype(int), gl_Positions.max(axis=1).astype(int)
-    return rect_max, rect_min
