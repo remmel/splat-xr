@@ -112,11 +112,7 @@ class SplatsRendererLoop:
 
         # a_pos = np.array([2.0,2.0])
 
-        # Setup rendering buffers
-        img_rgb = np.zeros((viewport.height, viewport.width, 3), dtype=np.float32)
-        img_alpha = np.zeros((viewport.height, viewport.width), dtype=np.float32)
-
-        img_premult = np.zeros((viewport.height, viewport.width, 4), dtype=np.float32)
+        img_rgba = np.zeros((viewport.height, viewport.width, 4), dtype=np.float32)
 
         # Sort by depth
         indices = np.argsort(depths) #or -depth?
@@ -125,10 +121,6 @@ class SplatsRendererLoop:
         #indices[0] == 100053
         # radii = get_radius(cov2d)
         # (rect_min0, rect_max0) = get_rect(center_px_all, radii, viewport.width, viewport.height)
-
-        # gl_Position = (center_f[idx_expanded] +  # Shape: (N, 1, 2)
-        #                a_pos_expanded[..., 0] * major_axes[idx_expanded] / uViewport +  # Shape: (N, 4, 2)
-        #                a_pos_expanded[..., 1] * minor_axes[idx_expanded] / uViewport)
 
         a_positions = np.array([[-2,-2], [2,-2], [2,2], [-2,2]])
 
@@ -171,24 +163,16 @@ class SplatsRendererLoop:
                     A = -(dx**2+dy**2) #vPosition = np.array([dx, dy]) -np.dot(vPosition, vPosition) #-(dx**2+dy**2)
                     if A < -4.0: continue
                     B = np.exp(A) * colors[idx][3]
+                    src_rgba = np.array([*colors[idx][:3] * B, B])
 
-                    src_rgb = colors[idx][:3] * B
-                    src_alpha = B
-
+                    # Alpha blending
                     # gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.ONE)
                     # src_rgba * (1-dst_a) + dst_rgba * 1
-                    # rgb = src_rgb * (1-dst_a) + dst_rgb * 1
-                    # a =   src_a   * (1-dst_a) + dst_a   * 1
+                    if(img_rgba[y, x, 3] >= 1): continue #correct?  accumulated, see indices creation
+                    img_rgba[y, x] = src_rgba * (1 - img_rgba[y, x,3]) + img_rgba[y,x]
 
-                    if(img_alpha[y, x] >= 1): continue #correct?  accumulated, see indices creation
-                    # Alpha blending
-                    img_rgb[y, x]   = src_rgb   * (1 - img_alpha[y, x]) + img_rgb[y,x] # src_rgb * (1-dst_a) + dst_rgb * 1
-                    img_alpha[y, x] = src_alpha * (1 - img_alpha[y, x]) + img_alpha[y,x] # src_a * (1-dst_a) + dst_a * 1
-
-        alpha_mask = img_alpha > 0
-        img_rgb[alpha_mask] /= img_alpha[alpha_mask, np.newaxis] #unpremult
-
-        img_rgba = np.dstack((img_rgb, img_alpha))
+        alpha_mask = img_rgba[:, :, 3] > 0
+        img_rgba[alpha_mask, :3] /= img_rgba[alpha_mask, 3:4] #unpremult rgb/a
         img_rgba = img_rgba[::-1, :] # image origin was top-left so flip y axis
         return (np.clip(img_rgba, 0, 1) * 255).astype(np.uint8)
 

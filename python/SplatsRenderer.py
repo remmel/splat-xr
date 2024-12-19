@@ -96,11 +96,8 @@ class SplatsRenderer:
         center_f = pos2d[:, :2] / pos2d[:, 3:4] # position in screen coords
         means2D = center_px_all = ((center_f + 1) * uViewport / 2).astype(int)
 
-        # a_pos = np.array([2.0,2.0])
-
         # Setup rendering buffers
-        img_rgb = np.zeros((viewport.height, viewport.width, 3), dtype=np.float32)
-        img_alpha = np.zeros((viewport.height, viewport.width), dtype=np.float32)
+        img_rgba = np.zeros((viewport.height, viewport.width, 4), dtype=np.float32)
 
         # Sort by depth
         indices = np.argsort(depths) #or -depth?
@@ -109,26 +106,19 @@ class SplatsRenderer:
         # radii = get_radius(cov2d)
         # (rect_min0, rect_max0) = get_rect(center_px_all, radii, viewport.width, viewport.height)
 
-        # gl_Position = (center_f[idx_expanded] +  # Shape: (N, 1, 2)
-        #                a_pos_expanded[..., 0] * major_axes[idx_expanded] / uViewport +  # Shape: (N, 4, 2)
-        #                a_pos_expanded[..., 1] * minor_axes[idx_expanded] / uViewport)
-
-        a_positions = np.array([[-2,-2], [2,-2], [2,2], [-2,2]])
-
+        a_positions = np.array([[-2,-2], [2,-2], [2,2], [-2,2]]) #quad
         nb_splats = center_f.shape[0]
         nb_quads = len(a_positions) #4
         nb_xy = center_f.shape[1]# tuple x,y
         gl_Positions = np.zeros((nb_splats, nb_quads, nb_xy)) #(99,4,2)
-        rect_min = rect_max = np.zeros((center_f.shape[0], nb_xy)) #(99,2)
-        for i in np.arange(len(a_positions)):
+        for idx, a_pos in enumerate(a_positions):
             gl_Position = (center_f
-                           + a_positions[i][0] * major_axes / uViewport
-                           + a_positions[i][1] * minor_axes / uViewport) #(99,2)
+                           + a_pos[0] * major_axes / uViewport
+                           + a_pos[1] * minor_axes / uViewport) #(99,2)
             gl_Position_px = ((gl_Position + 1) * uViewport / 2).astype(int)
-            gl_Positions[:, i, :] = gl_Position_px
+            gl_Positions[:, idx, :] = gl_Position_px
 
-        rect_min = gl_Positions.min(axis=1).astype(int) #(99,2)
-        rect_max = gl_Positions.max(axis=1).astype(int) #(99,2)
+        rect_min, rect_max = gl_Positions.min(axis=1).astype(int), gl_Positions.max(axis=1).astype(int)
 
         for idx in indices:
             min_x, min_y = rect_min[idx, :]
@@ -146,7 +136,6 @@ class SplatsRenderer:
                 np.arange(min_y, max_y),
             )
 
-
             dx = (x_coords - center_px_all[idx, 0]) / ((max_x - min_x) / 2) * 2
             dy = (y_coords - center_px_all[idx, 1]) / ((max_y - min_y) / 2) * 2
 
@@ -157,38 +146,30 @@ class SplatsRenderer:
             B[mask] = np.exp(A[mask]) * colors[idx][3]
 
             # Calculate color and alpha
-            frag_rgb = colors[idx][:3] * B[:, :, np.newaxis]
-            frag_alpha = B
+            src_rgba = np.dstack((colors[idx][:3] * B[:, :, np.newaxis], B))
 
             # frag_rgb[:, :] = [1, 0, 0]
             # frag_alpha[:, :] = 1
 
             # Get current values for the region
-            region_alpha = img_alpha[min_y:max_y, min_x:max_x] #dst_alpha
-            region_rgb = img_rgb[min_y:max_y, min_x:max_x] #dst_rgb
+            region_rgba = img_rgba[min_y:max_y, min_x:max_x] #dst
 
-            # gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.ONE)
-            # dst  = src * (1-dst_a) + dst * 1
-            # dst += src * (1-dst_a)
-
-            blend_mask = (region_alpha < 1) & mask # Create mask for non-saturated pixels
+            blend_mask = (region_rgba[:,:,3] < 1) & mask # Create mask for non-saturated pixels (alpha)
 
             # Update only valid pixels
             if np.any(blend_mask):
                 x_idcs, y_idcs = np.where(blend_mask)
 
                 # Perform blending for valid pixels
-                region_rgb[x_idcs, y_idcs] += frag_rgb[x_idcs, y_idcs] *  (1 - region_alpha[x_idcs, y_idcs, np.newaxis])
-                region_alpha[x_idcs, y_idcs] += frag_alpha[x_idcs, y_idcs] *  (1 - region_alpha[x_idcs, y_idcs])
+                # gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.ONE)
+                # dst  = src * (1-dst_a) + dst * 1 <=> dst += src * (1-dst_a)
+                region_rgba[x_idcs, y_idcs] += src_rgba[x_idcs, y_idcs] * (1 - region_rgba[x_idcs, y_idcs, 3, np.newaxis])
 
             # Update the original arrays
-            img_rgb[min_y:max_y, min_x:max_x] = region_rgb
-            img_alpha[min_y:max_y, min_x:max_x] = region_alpha
+            img_rgba[min_y:max_y, min_x:max_x] = region_rgba
 
-        alpha_mask = img_alpha > 0
-        img_rgb[alpha_mask] = img_rgb[alpha_mask] / img_alpha[alpha_mask, np.newaxis] #unpremult
-
-        img_rgba = np.dstack((img_rgb, img_alpha))
+        alpha_mask = img_rgba[:,:, 3] > 0
+        img_rgba[alpha_mask, :3] /= img_rgba[alpha_mask, 3:4] # unpremult: img.rgb /= img.alpha
         img_rgba = img_rgba[::-1, :] # image origin was top-left so flip y axis
         return (np.clip(img_rgba, 0, 1) * 255).astype(np.uint8)
 
