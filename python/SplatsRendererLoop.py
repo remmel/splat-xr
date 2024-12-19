@@ -102,10 +102,8 @@ class SplatsRendererLoop:
         major_axes = np.minimum(np.sqrt(2 * lambdas[:, 1, None]), 1024) * diagonalVecs[:, :, 1]
         minor_axes = np.minimum(np.sqrt(2 * lambdas[:, 0, None]), 1024) * diagonalVecs[:, :, 0] #FIXME different calculation
 
-        center_f = pos2d[:, :2] / pos2d[:, 3:4] # position in screen coords
-        means2D = center_px_all = ((center_f + 1) * uViewport / 2).astype(int)
-
-        # a_pos = np.array([2.0,2.0])
+        center_f = pos2d[:, :2] / pos2d[:, 3:4] # position in screen coords [0,1]
+        center_px = ((center_f + 1) * uViewport / 2).astype(int)
 
         img_rgba = np.zeros((viewport.height, viewport.width, 4), dtype=np.float32)
 
@@ -128,8 +126,8 @@ class SplatsRendererLoop:
 
             for x in range(min_x, max_x):
                 for y in range(min_y, max_y):
-                    dx = (x - center_px_all[idx, 0]) / ((max_x - min_x)/2) * 2 #*2 because quad2 ?
-                    dy = (y - center_px_all[idx, 1]) / ((max_y - min_y)/2) * 2
+                    dx = (x - center_px[idx, 0]) / ((max_x - min_x)/2) * 2 #*2 because quad2 ?
+                    dy = (y - center_px[idx, 1]) / ((max_y - min_y)/2) * 2
 
                     A = -(dx**2+dy**2) #vPosition = np.array([dx, dy]) -np.dot(vPosition, vPosition)
                     if A < -4.0: continue
