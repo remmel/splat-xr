@@ -59,14 +59,15 @@ class SplatsRenderer:
                 (pos2d[:, 1] < -clip) |  # y < -clip
                 (pos2d[:, 1] > clip)  # y > clip
         )
+        print(f"{np.sum(in_frustum):,}/{len(in_frustum):,} in frustum")
 
         # Update arrays to only include valid points
-        # positions = positions[in_frustum]
-        # scales = scales[in_frustum]
-        # rots = rots[in_frustum]
-        # colors = colors[in_frustum]
-        # pos2d = pos2d[in_frustum]
-        # cam = cam[in_frustum]
+        positions = positions[in_frustum]
+        scales = scales[in_frustum]
+        rots = rots[in_frustum]
+        colors = colors[in_frustum]
+        pos2d = pos2d[in_frustum]
+        cam = cam[in_frustum]
 
         depths = cam[:, 2]
 
@@ -85,7 +86,6 @@ class SplatsRenderer:
         T = view[:3, :3].T @ J.transpose(0, 2, 1)
         cov2d = T.transpose(0, 2, 1) @ vrk @ T
 
-
         # Compute eigenvalues and vectors for all points
         lambdas, diagonalVecs = np.linalg.eigh(cov2d)
 
@@ -94,37 +94,24 @@ class SplatsRenderer:
         minor_axes = np.minimum(np.sqrt(2 * lambdas[:, 0, None]), 1024) * diagonalVecs[:, :, 0] #FIXME different calculation
 
         center_f = pos2d[:, :2] / pos2d[:, 3:4] # position in screen coords
-        means2D = center_px_all = ((center_f + 1) * uViewport / 2).astype(int)
+        center_px = ((center_f + 1) * uViewport / 2).astype(int)
 
-        # Setup rendering buffers
-        img_rgba = np.zeros((viewport.height, viewport.width, 4), dtype=np.float32)
+        img_rgba = np.zeros((viewport.height, viewport.width, 4), dtype=np.float32) # Setup rendering buffers
 
-        # Sort by depth
-        indices = np.argsort(depths) #or -depth?
+        indices = np.argsort(depths) # Sort by depth
         # indices = np.arange(0, len(depths))
         #indices[0] == 100053
-        # radii = get_radius(cov2d)
-        # (rect_min0, rect_max0) = get_rect(center_px_all, radii, viewport.width, viewport.height)
 
-        a_positions = np.array([[-2,-2], [2,-2], [2,2], [-2,2]]) #quad
-        nb_splats = center_f.shape[0]
-        nb_quads = len(a_positions) #4
-        nb_xy = center_f.shape[1]# tuple x,y
-        gl_Positions = np.zeros((nb_splats, nb_quads, nb_xy)) #(99,4,2)
-        for idx, a_pos in enumerate(a_positions):
-            gl_Position = (center_f
-                           + a_pos[0] * major_axes / uViewport
-                           + a_pos[1] * minor_axes / uViewport) #(99,2)
-            gl_Position_px = ((gl_Position + 1) * uViewport / 2).astype(int)
-            gl_Positions[:, idx, :] = gl_Position_px
-
-        rect_min, rect_max = gl_Positions.min(axis=1).astype(int), gl_Positions.max(axis=1).astype(int)
+        # rect_max, rect_min = get_rect(center_f, major_axes, minor_axes, uViewport) #code using the gl_Positions
+        axes_f = (abs(major_axes) + abs(minor_axes)) / uViewport #from px to [0,1]
+        rect_min = (((center_f + -2 * axes_f)+1)*uViewport/2).astype(int) #in px, -2 is quad min
+        rect_max = (((center_f + +2 * axes_f)+1)*uViewport/2).astype(int)
 
         for idx in indices:
             min_x, min_y = rect_min[idx, :]
             max_x, max_y = rect_max[idx, :]
 
-            if(not in_frustum[idx]): continue
+            # if(not in_frustum[idx]): continue
 
             valid_rect = min_x > 0 and min_y > 0 and max_x < viewport.width and max_y < viewport.height
             if not valid_rect: continue #TODO handle that better, to avoid loosing edge splats
@@ -136,8 +123,8 @@ class SplatsRenderer:
                 np.arange(min_y, max_y),
             )
 
-            dx = (x_coords - center_px_all[idx, 0]) / ((max_x - min_x) / 2) * 2
-            dy = (y_coords - center_px_all[idx, 1]) / ((max_y - min_y) / 2) * 2
+            dx = (x_coords - center_px[idx, 0]) / ((max_x - min_x) / 2) * 2
+            dy = (y_coords - center_px[idx, 1]) / ((max_y - min_y) / 2) * 2
 
             A = -(dx**2 + dy**2)
             mask = A >= -4.0
@@ -174,19 +161,18 @@ class SplatsRenderer:
         return (np.clip(img_rgba, 0, 1) * 255).astype(np.uint8)
 
 
-def get_rect(pix_coord, radii, width, height):
-    rect_min = (pix_coord - radii[:,None])
-    rect_max = (pix_coord + radii[:,None])
-    rect_min[..., 0] = rect_min[..., 0].clip(0, width - 1.0)
-    rect_min[..., 1] = rect_min[..., 1].clip(0, height - 1.0)
-    rect_max[..., 0] = rect_max[..., 0].clip(0, width - 1.0)
-    rect_max[..., 1] = rect_max[..., 1].clip(0, height - 1.0)
-    return rect_min, rect_max
-
-
-def get_radius(cov2d):
-    det = cov2d[:, 0, 0] * cov2d[:,1,1] - cov2d[:, 0, 1] * cov2d[:,1,0]
-    mid = 0.5 * (cov2d[:, 0,0] + cov2d[:,1,1])
-    lambda1 = mid + np.sqrt(np.clip(mid**2-det, a_min=0.1, a_max=None))
-    lambda2 = mid - np.sqrt(np.clip(mid**2-det, a_min=0.1, a_max=None))
-    return np.ceil(3.0 * np.sqrt(np.maximum(lambda1, lambda2)))
+# reproduce the antimatter code / opengl pipeline
+def get_rect(center_f, major_axes, minor_axes, uViewport):
+    a_positions = np.array([[-2, -2], [2, -2], [2, 2], [-2, 2]])  # quad
+    nb_splats = center_f.shape[0]
+    nb_quads = len(a_positions)  # 4
+    nb_xy = center_f.shape[1]  # tuple x,y
+    gl_Positions = np.zeros((nb_splats, nb_quads, nb_xy))  # (99,4,2)
+    for idx, a_pos in enumerate(a_positions):
+        gl_Position = (center_f
+                       + a_pos[0] * major_axes / uViewport
+                       + a_pos[1] * minor_axes / uViewport)  # (99,2)
+        gl_Position_px = ((gl_Position + 1) * uViewport / 2).astype(int)
+        gl_Positions[:, idx, :] = gl_Position_px
+    rect_min, rect_max = gl_Positions.min(axis=1).astype(int), gl_Positions.max(axis=1).astype(int)
+    return rect_max, rect_min
