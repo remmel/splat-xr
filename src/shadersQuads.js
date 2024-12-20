@@ -14,6 +14,7 @@ in int aIndex;
 
 out vec4 vColor;
 out vec2 vPosition;
+out float vDebugValue;
 
 void main () {
 
@@ -69,6 +70,23 @@ void main () {
         vCenter 
         + aPosition.x * majorAxis / uViewport 
         + aPosition.y * minorAxis / uViewport, 0.0, 1.0);
+        
+//    if(gl_InstanceID != 0) return;
+//    if(aIndex < 70802 || aIndex > 70802) return;
+    if(aIndex != 70802) return;
+    
+//    mat3 matt = mat3(
+//        0.0, 0.1, 0.2,
+//        1.0, 1.1, 1.2,
+//        2.0, 2.1, 2.2
+//    );
+
+    vec4 position2 = vec4(
+        vCenter 
+        + -2.0 * majorAxis / uViewport 
+        + 2.0 * minorAxis / uViewport, 0.0, 1.0);
+    
+    vDebugValue = gl_Position.x;
 
 }
 `.trim();
@@ -80,18 +98,22 @@ precision highp float;
 
 in vec4 vColor;
 in vec2 vPosition;
+in float vDebugValue;
 
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out float fragDebug;
 
 void main () {
+//    if(vDebugValue !=1.0) discard;
     float A = -dot(vPosition, vPosition);
     if (A < -4.0) discard;
     float B = exp(A) * vColor.a;
-    fragColor = vec4(B * vColor.rgb, B);
+//    if(B < 16.0/255.0) discard;
+    fragColor = vec4(vColor.rgb * B, B);
+//    fragColor = vec4(1.0,0.0,0.0,1.0);
     
     //count
-    fragColor = vec4(1.0/255.0);
-    fragDebug = 1.0;
+//    fragColor = vec4(1.0/255.0);
+    fragDebug = vDebugValue;
 }
 `.trim();

@@ -11,10 +11,13 @@ from python.SplatsRendererLoop import SplatsRendererLoop
 from python.utils import Viewport, create_projection_matrix, glm_to_numpy, timer
 
 if __name__ == "__main__":
-    renderer = SplatsRenderer("../public/tmp/gs_Emma_26fev_low.splat")
-    # renderer = SplatsRenderer("../public/tmp/gs_Emma_26fev_converted_by_kwok.splat")
-    # renderer = SplatsRenderer("../public/tmp/test.splat")
-    # renderer = SplatsRendererLoop("../public/tmp/test.splat")
+    # renderer = SplatsRenderer("../public/tmp/gs_Emma_26fev_low.splat")
+    renderer, output = SplatsRenderer("../public/tmp/gs_Emma_26fev_converted_by_kwok.splat"), "test/emma_vect.png"
+
+    # renderer, output = SplatsRenderer("../public/tmp/test.splat"), "test/axis_vect.png"
+    # renderer, output = SplatsRendererLoop("../public/tmp/test.splat"), "test/axis_loop_revdepth.png"
+
+    # renderer = SplatsRendererLoop("../public/tmp/gs_Emma_26fev_low.splat")
     # renderer = PointsRenderer("../public/tmp/gs_Emma_26fev_low.splat")
     view_matrix = np.eye(4)  # Identity matrix for testing
     w, h, f = 1000, 1000, 1000
@@ -57,7 +60,7 @@ if __name__ == "__main__":
 
     with timer('render'):
         image = renderer.render(view_antimatter, proj_antimatter, viewport, f)
-    Image.fromarray(image).save('tmp/result.png')
+    Image.fromarray(image).save('tmp/result.png' if not output else output)
 
     plt.imshow(image)
     plt.axis('off')

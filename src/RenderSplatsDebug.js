@@ -82,7 +82,18 @@ export class RenderSplatsDebug extends RenderSplats{
         const pixels_1_f32 = new Float32Array(w * h)
         gl.readPixels(0, 0, w, h, gl.RED, gl.FLOAT, pixels_1_f32);
         let maxR = maxArray(pixels_1_f32)
-        console.log('Max number of time a single pixel has been updated (layers):', maxR)
+        let minR = minArray(pixels_1_f32)
+        console.log('Max number of time a single pixel has been updated (layers):', maxR, minR)
+    }
+
+    sort(x, y, z) {
+        return super.sort(x, y, z)
+        let depthIndex = new Uint32Array(this.vertexCount)
+        for(let i = 0; i < this.vertexCount; i++)
+            depthIndex[i] = i;
+        // depthIndex = depthIndex.reverse()
+        console.log({depthIndex})
+        return depthIndex //back to front <=> 1st to last
     }
 }
 
@@ -91,4 +102,11 @@ function maxArray(arr) {
     let maxVal = -Infinity
     for(let i = 0; i < arr.length; i++) maxVal = Math.max(maxVal, arr[i])
     return maxVal
+}
+
+function minArray(arr) {
+    //handle huge array and avoiding `Uncaught (in promise) RangeError: Maximum call stack size exceeded`
+    let val = Infinity
+    for(let i = 0; i < arr.length; i++) val = Math.min(val, arr[i])
+    return val
 }

@@ -18,6 +18,7 @@ async function main() {
     // const url = 'dataset/train.splat'
     const url = 'tmp/gs_Emma_26fev_converted_by_kwok.splat'
     // const url = 'tmp/gs_Emma_26fev_low.splat'
+    // const url = 'tmp/test.splat'
     // const url = new URLSearchParams(location.search).get("url") ?? 'https://huggingface.co/cakewalk/splat-data/resolve/main/train.splat'
 
     let xrSession = null;
@@ -28,6 +29,7 @@ async function main() {
 
     const gl = canvas.getContext("webgl2", {
         antialias: false,
+        // premultipliedAlpha: false //default is true
     });
 
     // console.log("canvas size before", gl.canvas.width, gl.canvas.height) //why is it 300x150?!?
@@ -38,7 +40,8 @@ async function main() {
     gl.canvas.height = h
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height)
 
-    const renderSplats = new RenderSplatsDebug(gl)
+    const renderSplats = new RenderSplats(gl)
+    // const renderSplats = new RenderSplatsDebug(gl)
     await renderSplats.fetch(url)
     document.getElementById("spinner").style.display = "none"
 
@@ -51,9 +54,23 @@ async function main() {
 
         // const view = animateCarrouselMouvement(worldTransform)
 
+        view = [
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 1, 0,
+            0, 0.1, 3, 1
+        ]
+
+        proj = [
+            2, 0, 0, 0,
+            0, -2, 0, 0,
+            0, 0, 1.0010010010010009, 1,
+            0, 0, -0.20020020020020018, 0
+        ]
+
         renderSplats.draw(view, viewport, proj)
 
-        // requestAnimationFrame(onFrame);
+        requestAnimationFrame(onFrame);
     };
 
     let worldXRTransform = [
@@ -85,7 +102,7 @@ async function main() {
         }
     }
 
-    onFrame();
+    onFrame()
 
     async function startXR() {
         xrSession = await navigator.xr.requestSession('immersive-vr', {optionalFeatures: ['local-floor']})
