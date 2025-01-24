@@ -14,7 +14,15 @@ in int aIndex;
 
 out vec4 vColor;
 out vec2 vPosition;
-out float vDebugValue;
+out vec2 vCenter;
+out vec2 rectSize_px;
+out vec2 vMajorAxis;
+out vec2 vMinorAxis;
+
+// [-1, 1] => [0, 1920]
+vec2 ndcToPx(vec2 ndc, vec2 vp) {
+    return (ndc * 0.5 + 0.5) * vp;
+}
 
 void main () {
 
@@ -39,8 +47,8 @@ void main () {
     mat3 Vrk = mat3(u1.x, u1.y, u2.x, u1.y, u2.y, u3.x, u2.x, u3.x, u3.y);
 
     mat3 J = mat3(
-        uFocal.x / cam.z, 0., -(uFocal.x * cam.x) / (cam.z * cam.z), 
-        0., -uFocal.y / cam.z, (uFocal.y * cam.y) / (cam.z * cam.z), 
+        uFocal.x / cam.z, 0., -(uFocal.x * cam.x) / (cam.z * cam.z),
+        0., -uFocal.y / cam.z, (uFocal.y * cam.y) / (cam.z * cam.z),
         0., 0., 0.
     );
 
@@ -53,7 +61,7 @@ void main () {
 
     if(lambda2 < 0.0) return;
     vec2 diagonalVector = normalize(vec2(cov2d[0][1], lambda1 - cov2d[0][0]));
-    vec2 majorAxis = min(sqrt(2.0 * lambda1), 1024.0) * diagonalVector;
+    vec2 majorAxis = min(sqrt(2.0 * lambda1), 1024.0) * diagonalVector; //in pixel
     vec2 minorAxis = min(sqrt(2.0 * lambda2), 1024.0) * vec2(diagonalVector.y, -diagonalVector.x);
 
     vColor = clamp(pos2d.z/pos2d.w+1.0, 0.0, 1.0) * vec4(
@@ -62,32 +70,43 @@ void main () {
         (cov.w >> 16) & 0xffu,
         (cov.w >> 24) & 0xffu
     ) / 255.0;
-    
+
+//    if(aIndex != 928310 ) return; // large diagonal splats, use with fragColor = vec4(1.0, 0.0, 0.0, 1.0);
+
+    vCenter = vec2(pos2d) / pos2d.w; //[-1,1]
+
     vPosition = aPosition;
+//    gl_Position = vec4(vCenter + 4.0 * (aPosition.x * majorAxis + aPosition.y * minorAxis) / uViewport, 0.0, 1.0);
 
-    vec2 vCenter = vec2(pos2d) / pos2d.w;
-    gl_Position = vec4(
-        vCenter 
-        + aPosition.x * majorAxis / uViewport 
-        + aPosition.y * minorAxis / uViewport, 0.0, 1.0);
-        
-//    if(gl_InstanceID != 0) return;
-//    if(aIndex < 70802 || aIndex > 70802) return;
-    if(aIndex != 70802) return;
-    
-//    mat3 matt = mat3(
-//        0.0, 0.1, 0.2,
-//        1.0, 1.1, 1.2,
-//        2.0, 2.1, 2.2
-//    );
+    // pos0 are [-1,1]
+    vec2 axisSum01 = (abs(majorAxis) + abs(minorAxis))/uViewport;
+    vec2 minRect = vCenter - 4.0 * axisSum01, maxRect = vCenter + 4.0 * axisSum01;
+//    vec2 pos0 = vec2(vCenter + 4.0 * (-majorAxis -minorAxis) / uViewport);
+//    vec2 pos1 = vec2(vCenter + 4.0 * (-majorAxis +minorAxis) / uViewport);
+//    vec2 pos2 = vec2(vCenter + 4.0 * (+majorAxis -minorAxis) / uViewport);
+//    vec2 pos3 = vec2(vCenter + 4.0 * (+majorAxis +minorAxis) / uViewport);
+//    vec2 minRect = min(min(pos0, pos1), min(pos2, pos3));
+//    vec2 maxRect = max(max(pos0, pos1), max(pos2, pos3));
+    vec2 minRect_px = ndcToPx(minRect,uViewport), maxRect_px = ndcToPx(maxRect, uViewport);
+    rectSize_px = maxRect_px - minRect_px;
 
-    vec4 position2 = vec4(
-        vCenter 
-        + -2.0 * majorAxis / uViewport 
-        + 2.0 * minorAxis / uViewport, 0.0, 1.0);
-    
-    vDebugValue = gl_Position.x;
+    // generating fragment as unrotated rectangle, it has impact on the localPos
+    if(aPosition == vec2(-1.0,-1.0)) {
+//        gl_Position = vec4(pos0, 0.0, 1.0);
+        gl_Position = vec4(minRect.x, minRect.y, 0.0, 1.0);
+    } else if(aPosition == vec2(-1.0,1.0)) {
+//        gl_Position = vec4(pos1, 0.0, 1.0);
+        gl_Position = vec4(minRect.x, maxRect.y, 0.0, 1.0);
+    } else if(aPosition == vec2(1.0,-1.0)) {
+//        gl_Position = vec4(pos2, 0.0, 1.0);
+        gl_Position = vec4(maxRect.x, minRect.y, 0.0, 1.0);
+    } else if(aPosition == vec2(1.0,1.0)) {
+//        gl_Position = vec4(pos3, 0.0, 1.0);
+        gl_Position = vec4(maxRect.x, maxRect.y, 0.0, 1.0);
+    }
 
+        vMajorAxis = majorAxis;
+        vMinorAxis = minorAxis;
 }
 `.trim();
 
@@ -97,23 +116,42 @@ export const fragmentShaderSource = `
 precision highp float;
 
 in vec4 vColor;
-in vec2 vPosition;
-in float vDebugValue;
+in vec2 vPosition; //[-1,1], but was before [-2,-2]
+in vec2 vCenter; //[-1, 1] window-relative
+in vec2 rectSize_px;
+in vec2 vMajorAxis;
+in vec2 vMinorAxis;
+
+//gl_FragCoord // eg [0-1919, 0-1079] current pixel position
+uniform vec2 uViewport;
 
 layout(location = 0) out vec4 fragColor;
-layout(location = 1) out float fragDebug;
+
+// [-1, 1] => [0, 1920]
+vec2 ndcToPx(vec2 ndc, vec2 vp) {
+    return (ndc * 0.5 + 0.5) * vp;
+}
 
 void main () {
-//    if(vDebugValue !=1.0) discard;
-    float A = -dot(vPosition, vPosition);
-    if (A < -4.0) discard;
-    float B = exp(A) * vColor.a;
-//    if(B < 16.0/255.0) discard;
+    vec2 centerPx = ndcToPx(vCenter, uViewport);
+    vec2 delta_px = gl_FragCoord.xy - centerPx;
+
+    //vec2 localPos = (delta_px / rectSize_px) * 4.0; //[-1, 1] local-relative - not rotated (rect)
+// TODO some optimization to discard points outside quad (which is calculated in the vertex)
+
+    vec2 localPos = vec2(
+        dot(delta_px, normalize(vMajorAxis)) / length(vMajorAxis),
+        dot(delta_px, normalize(vMinorAxis)) / length(vMinorAxis)); // [-1, 1] - rotated (rect)
+
+    float A = dot(localPos, localPos);
+//    float A = dot(vPosition*2.0, vPosition*2.0);
+    if (A > 4.0) discard;
+
+    float B = exp(-A) * vColor.a;
+//    if(B < 1.0/255.0) discard;
+//    fragColor = vec4(localPos.y, 0.0, 0.0, 1.0);
+//    fragColor = vec4(vPosition.y, 0.0, 0.0, 1.0);
+//    fragColor = vec4(1.0, 0.0, 0.0, 1.0);
     fragColor = vec4(vColor.rgb * B, B);
-//    fragColor = vec4(1.0,0.0,0.0,1.0);
-    
-    //count
-//    fragColor = vec4(1.0/255.0);
-    fragDebug = vDebugValue;
 }
 `.trim();

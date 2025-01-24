@@ -1,4 +1,3 @@
-// import {fragmentShaderSourcePoint as fragmentShaderSource, vertexShaderSourcePoint as vertexShaderSource} from "./shadersPoints.js"; //pointcloud
 import { fragmentShaderSource, vertexShaderSource } from "./shadersQuads.js"
 import { createProgram, multiply4, packHalf2x16 } from "./utils.js"
 
@@ -23,7 +22,8 @@ export class RenderSplats {
         this.uViewLoc = gl.getUniformLocation(program, "uView")
 
         // positions
-        const triangleVertices = new Float32Array([-2, -2, 2, -2, 2, 2, -2, 2])
+        // const triangleVertices = new Float32Array([-2, -2, 2, -2, 2, 2, -2, 2])
+        const triangleVertices = new Float32Array([-1, -1, 1, -1, 1, 1, -1, 1])
         const vertexBuffer = gl.createBuffer()
         gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer)
         gl.bufferData(gl.ARRAY_BUFFER, triangleVertices, gl.STATIC_DRAW)
@@ -111,18 +111,20 @@ export class RenderSplats {
             ]
 
             // Compute the matrix product of S and R (M = S * R)
+
+            const [qw, qx, qy, qz] = rot
             const M = [
-                1.0 - 2.0 * (rot[2] * rot[2] + rot[3] * rot[3]),
-                2.0 * (rot[1] * rot[2] + rot[0] * rot[3]),
-                2.0 * (rot[1] * rot[3] - rot[0] * rot[2]),
+                1.0 - 2.0 * (qy * qy + qz * qz),
+                2.0 * (qx * qy + qw * qz),
+                2.0 * (qx * qz - qw * qy),
 
-                2.0 * (rot[1] * rot[2] - rot[0] * rot[3]),
-                1.0 - 2.0 * (rot[1] * rot[1] + rot[3] * rot[3]),
-                2.0 * (rot[2] * rot[3] + rot[0] * rot[1]),
+                2.0 * (qx * qy - qw * qz),
+                1.0 - 2.0 * (qx * qx + qz * qz),
+                2.0 * (qy * qz + qw * qx),
 
-                2.0 * (rot[1] * rot[3] + rot[0] * rot[2]),
-                2.0 * (rot[2] * rot[3] - rot[0] * rot[1]),
-                1.0 - 2.0 * (rot[1] * rot[1] + rot[2] * rot[2]),
+                2.0 * (qx * qz + qw * qy),
+                2.0 * (qy * qz - qw * qx),
+                1.0 - 2.0 * (qx * qx + qy * qy),
             ].map((k, i) => k * scale[Math.floor(i / 3)])
 
             const sigma = [
@@ -135,9 +137,10 @@ export class RenderSplats {
             ]
 
             //uint32 - 3x4B <=>3x32b
-            texdata_u32[8 * i + 4] = packHalf2x16(4 * sigma[0], 4 * sigma[1])
-            texdata_u32[8 * i + 5] = packHalf2x16(4 * sigma[2], 4 * sigma[3])
-            texdata_u32[8 * i + 6] = packHalf2x16(4 * sigma[4], 4 * sigma[5])
+            const c = 1
+            texdata_u32[8 * i + 4] = packHalf2x16(c * sigma[0], c * sigma[1])
+            texdata_u32[8 * i + 5] = packHalf2x16(c * sigma[2], c * sigma[3])
+            texdata_u32[8 * i + 6] = packHalf2x16(c * sigma[4], c * sigma[5])
         }
 
         this.setGpuTexturedata(texdata_u32, texwidth, texheight)
@@ -168,15 +171,13 @@ export class RenderSplats {
 
         // Enable blending
         gl.enable(gl.BLEND)
-        // gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.ONE) // antimatter
-        // gl.blendFunc(gl.ONE, gl.ONE_MINUS_DST_ALPHA)
-        gl.blendFunc(gl.ONE, gl.ONE)
+        gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.ONE)
 
         gl.useProgram(this.program)
         gl.bindVertexArray(this.vao)
-        gl.uniformMatrix4fv(this.uProjLoc, false, proj) //fixed
-        gl.uniformMatrix4fv(this.uViewLoc, false, view) //fixed
-        gl.uniform2fv(this.uViewportLoc, new Float32Array([viewport.width, viewport.height])) //fixed
+        gl.uniformMatrix4fv(this.uProjLoc, false, proj)
+        gl.uniformMatrix4fv(this.uViewLoc, false, view)
+        gl.uniform2fv(this.uViewportLoc, new Float32Array([viewport.width, viewport.height]))
         gl.uniform2fv(this.uFocalLoc, new Float32Array([
             (proj[0] * viewport.width) / 2,
             -(proj[5] * viewport.height) / 2
@@ -185,7 +186,6 @@ export class RenderSplats {
         const viewProj = multiply4(proj, view)
         this.runSort(viewProj)
         gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, this.vertexCount)
-        // gl.drawArraysInstanced(gl.POINTS, 0, 1, this.vertexCount) //pointcloud
     }
 
     runSort(viewProj) {
@@ -220,7 +220,7 @@ export class RenderSplats {
         }
 
         // This is a 16 bit single-pass counting sort
-        let depthInv = (256 * 256) / (maxDepth - minDepth)
+        let depthInv = (256 * 256 - 1) / (maxDepth - minDepth);
         let counts0 = new Uint32Array(256 * 256)
         for (let i = 0; i < this.vertexCount; i++) {
             sizeList[i] = ((sizeList[i] - minDepth) * depthInv) | 0
@@ -234,6 +234,7 @@ export class RenderSplats {
             depthIndex[starts0[sizeList[i]]++] = i
 
         console.timeEnd("sort")
+        console.log(depthIndex)
         return depthIndex
     }
 }

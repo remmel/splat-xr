@@ -1,32 +1,11 @@
 import numpy as np
-import scipy
 
-from python.utils import Viewport, timer
+from utils import load_splat_file, remove_alpha
 
 
 class SplatsRenderer:
     def __init__(self, splat_file_path):
-        self.points = self.load_splat_file(splat_file_path)
-
-    def load_splat_file(self, file_path):
-        with open(file_path, 'rb') as f:
-            data = np.frombuffer(f.read(), dtype=np.uint8)
-
-        row_length = 3 * 4 + 3 * 4 + 4 + 4  # position + scale + rgba + quaternion
-        vertex_count = len(data) // row_length
-        data = data.reshape(vertex_count, row_length)
-
-        # Extract positions
-        positions = np.frombuffer(data[:, :12].tobytes(), dtype=np.float32).reshape(-1, 3)
-
-        # Extract scales and rotations
-        scales = np.frombuffer(data[:, 12:24].tobytes(), dtype=np.float32).reshape(-1, 3)
-        rots = (data[:, 28:32].astype(np.float32) - 128) / 128
-
-        # Extract colors
-        colors = data[:, 24:28].astype(np.float32) / 255.0
-
-        return positions, scales, rots, colors
+        self.points = load_splat_file(splat_file_path)
 
     def compute_cov3d(self, scales, rots):
         qw, qx, qy, qz = rots.T
@@ -41,13 +20,46 @@ class SplatsRenderer:
         res = M @ M.transpose(0, 2, 1)
         return res
 
-    def render(self, view, proj, viewport: Viewport, focal_length):
+    def compute_jacobian(self, cam_points, f):
+        x, y, z = cam_points[:, 0], cam_points[:, 1], cam_points[:, 2]
+        fx, fy = f, f
+
+        # Compute Jacobian matrices for all points
+        J = np.zeros((len(cam_points), 3, 3))
+        J[:, 0, 0], J[:, 0, 1], J[:, 0, 2] = fx / z, 0, -(fx * x) / (z * z)
+        J[:, 1, 0], J[:, 1, 1], J[:, 1, 2] = 0, -fy / z, (fy * y) / (z * z)
+        J[:, 2, 0], J[:, 2, 1], J[:, 2, 2] = 0, 0, 0
+
+        return J
+
+    def compute_cov2d(self, view, vrk, J):
+        """Compute 2D covariance matrices for all points."""
+        T = view[:3, :3].T @ J.transpose(0, 2, 1)  # should I transpose the view, try with view rotated
+        cov2d = T.transpose(0, 2, 1) @ vrk @ T
+
+        cov2d_batch = cov2d[:, :2, :2]  # Take only the 2x2 part
+        eigenvals, eigenvecs = np.linalg.eigh(cov2d_batch)
+        lambda2, lambda1 = eigenvals[:, 0, np.newaxis], eigenvals[:, 1, np.newaxis]
+
+        # Calculate major and minor axes
+        major_axis = np.minimum(np.sqrt(2 * lambda1), 1024) * eigenvecs[:, :, 1]
+        minor_axis = np.minimum(np.sqrt(2 * lambda2), 1024) * eigenvecs[:, :, 0]
+        # minor_axis = np.minimum(np.sqrt(2 * lambda2), 1024) * np.column_stack([eigenvecs[:, 1, 1],-eigenvecs[:, 0, 1]])
+
+        # Filter out degenerate gaussians
+        valid = lambda2.squeeze() >= 0
+
+        return major_axis, minor_axis, valid
+
+    def render(self, view, proj, w, h, f):
+        assert view.shape == (4, 4);
+        assert proj.shape == (4, 4)
+
         positions, scales, rots, colors = self.points
-        uViewport = np.array([viewport.width, viewport.height]) # TODO remove viewport class
 
         # Transform all points - (proj @ cam.T).T[70802, :] == (proj @ cam[70802, :])
         positions_v4 = np.hstack([positions, np.ones((len(positions), 1))])
-        cam = (view @ positions_v4.T).T #cam = uView * center
+        cam = (view @ positions_v4.T).T  # cam = uView * center
         pos2d = (proj @ cam.T).T
 
         # Add frustum culling optimization
@@ -59,103 +71,109 @@ class SplatsRenderer:
                 (pos2d[:, 1] < -clip) |  # y < -clip
                 (pos2d[:, 1] > clip)  # y > clip
         )
+        # in_frustum[:] = False
+        # in_frustum[928310] = True
         print(f"{np.sum(in_frustum):,}/{len(in_frustum):,} in frustum")
 
         # Update arrays to only include valid points
-        positions = positions[in_frustum]
-        scales = scales[in_frustum]
-        rots = rots[in_frustum]
-        colors = colors[in_frustum]
-        pos2d = pos2d[in_frustum]
-        cam = cam[in_frustum]
+        positions, scales, rots, colors = positions[in_frustum], scales[in_frustum], rots[in_frustum], colors[
+            in_frustum]
+        pos2d, cam = pos2d[in_frustum], cam[in_frustum]
 
-        depths = cam[:, 2]
+        vrks = self.compute_cov3d(scales, rots)  # (n,3,3)}
 
-        vrk = 4 * self.compute_cov3d(scales, rots) #(n,3,3)}
-        focal = np.array([focal_length, focal_length])
+        J = self.compute_jacobian(cam, f)
 
-        depths_sq = depths * depths
-        fx, fy = focal
-        # Quicker to "bake" view in J like before?
-        J = np.zeros((len(depths), 2, 3))
-        J[:, 0, 0] = fx / depths
-        J[:, 0, 2] = -fx * positions[:, 0] / depths_sq
-        J[:, 1, 1] = -fy / depths
-        J[:, 1, 2] = fy * positions[:, 1] / depths_sq
+        major_axis, minor_axis, valid = self.compute_cov2d(view, vrks, J)
 
-        T = view[:3, :3].T @ J.transpose(0, 2, 1)
-        cov2d = T.transpose(0, 2, 1) @ vrk @ T
+        uViewport = np.array([w, h])
+        center_ndc = pos2d[:, :2] / pos2d[:, 3:4]  # position in screen coords
+        center_px = ndc_to_px(center_ndc, uViewport).astype(int)
 
-        # Compute eigenvalues and vectors for all points
-        lambdas, diagonalVecs = np.linalg.eigh(cov2d)
+        img_rgba = np.zeros((h, w, 4), dtype=np.float32)  # Setup rendering buffers
 
-        # Compute axes
-        major_axes = np.minimum(np.sqrt(2 * lambdas[:, 1, None]), 1024) * diagonalVecs[:, :, 1]
-        minor_axes = np.minimum(np.sqrt(2 * lambdas[:, 0, None]), 1024) * diagonalVecs[:, :, 0] #FIXME different calculation
-
-        center_f = pos2d[:, :2] / pos2d[:, 3:4] # position in screen coords
-        center_px = ((center_f + 1) * uViewport / 2).astype(int)
-
-        img_rgba = np.zeros((viewport.height, viewport.width, 4), dtype=np.float32) # Setup rendering buffers
-
-        indices = np.argsort(depths) # Sort by depth
+        indices = np.argsort(cam[:, 2])  # Sort by depth
         # indices = np.arange(0, len(depths))
-        #indices[0] == 100053
+        # indices[0] == 100053
 
         # calculating the rectangle (quad min & max from gl_Position) - see get_rect
-        axes_f = (abs(major_axes) + abs(minor_axes)) / uViewport #from px to [0,1]
-        rect_min = (((center_f + -2 * axes_f)+1)*uViewport/2).astype(int) #in px, -2 is quad min
-        rect_max = (((center_f + +2 * axes_f)+1)*uViewport/2).astype(int)
+        axes_01 = (abs(major_axis) + abs(minor_axis)) / uViewport  # from px to [0,1]
+        rect_min_ndc = center_ndc + -4 * axes_01  # [-1,1]
+        rect_max_ndc = center_ndc + +4 * axes_01  # [-1,1]
+        rect_min_px, rect_max_px = ndc_to_px(rect_min_ndc, uViewport).astype(int), ndc_to_px(rect_max_ndc,
+                                                                                             uViewport).astype(int)
+        rect_min_px, rect_max_px = np.maximum(0, rect_min_px), np.minimum(uViewport, rect_max_px)
+        rect_size_px = rect_max_px - rect_min_px
 
         for idx in indices:
-            min_x, min_y = rect_min[idx, :]
-            max_x, max_y = rect_max[idx, :]
+            min_x_px, min_y_px = rect_min_px[idx, :]
+            max_x_px, max_y_px = rect_max_px[idx, :]
 
-            # if(not in_frustum[idx]): continue
+            # discard splat which rectangle is outside the screen (but center inside frustum * 1.2)
+            if min_x_px >= max_x_px or min_y_px >= max_y_px:
+                continue
 
-            valid_rect = min_x > 0 and min_y > 0 and max_x < viewport.width and max_y < viewport.height
-            if not valid_rect: continue #TODO handle that better, to avoid loosing edge splats
-
-            quad_shape = (max_y-min_y, max_x-min_x)
+            rect_shape = (max_y_px - min_y_px, max_x_px - min_x_px)  # (rect_size_px[idx, 1], rect_size_px[idx, 0])
 
             x_coords, y_coords = np.meshgrid(
-                np.arange(min_x, max_x),
-                np.arange(min_y, max_y),
+                np.arange(min_x_px, max_x_px),
+                np.arange(min_y_px, max_y_px),
             )
 
-            dx = (x_coords - center_px[idx, 0]) / ((max_x - min_x) / 2) * 2
-            dy = (y_coords - center_px[idx, 1]) / ((max_y - min_y) / 2) * 2
+            delta_px = np.stack([
+                x_coords - center_px[idx, 0],
+                y_coords - center_px[idx, 1]
+            ], axis=-1)  # (rect_h_px, rect_w_px, 2)
 
-            A = -(dx**2 + dy**2)
-            mask = A >= -4.0
+            # not rotated rect <=> localPos = (delta_px / rect_size_px[idx]) * 4 # [-2,2]
+            # dx = (x_coords - center_px[idx, 0]) / (max_x_px - min_x_px) * 4
+            # dy = (y_coords - center_px[idx, 1]) / (max_y_px - min_y_px) * 4
+
+            # rotated rect
+            major_axis_length, minor_axis_length = np.linalg.norm(major_axis[idx]), np.linalg.norm(minor_axis[idx])
+            major_axis_normalized, minor_axis_normalized = major_axis[idx] / major_axis_length, minor_axis[
+                idx] / minor_axis_length
+            dx = (delta_px[:, :, 0] * major_axis_normalized[0] + delta_px[:, :, 1] * major_axis_normalized[
+                1]) / major_axis_length
+            dy = (delta_px[:, :, 0] * minor_axis_normalized[0] + delta_px[:, :, 1] * minor_axis_normalized[
+                1]) / minor_axis_length
+
+            assert dx.shape == rect_shape and dy.shape == rect_shape
+            A = dx ** 2 + dy ** 2
+            mask = A <= 4.0
 
             B = np.zeros_like(A)
-            B[mask] = np.exp(A[mask]) * colors[idx][3]
+            B[mask] = np.exp(-A[mask]) * colors[idx][3]
 
             # Calculate color and alpha
             src_rgba = np.dstack((colors[idx][:3] * B[:, :, np.newaxis], B))
+            # src_rgba = np.dstack((np.array([1.0,0,0]) * np.ones_like(B[:, :, np.newaxis]),  np.ones_like(B)))
 
             # frag_rgb[:, :] = [1, 0, 0]
             # frag_alpha[:, :] = 1
 
             # Get current values for the region
-            region_rgba = img_rgba[min_y:max_y, min_x:max_x] #dst
+            region_rgba = img_rgba[min_y_px:max_y_px, min_x_px:max_x_px]  # dst
 
-            blend_mask = (region_rgba[:,:,3] < 1) & mask # Create mask for non-saturated pixels (alpha)
+            blend_mask = (region_rgba[:, :, 3] < 1) & mask  # Create mask for non-saturated pixels (alpha)
 
             # Update only valid pixels
             if np.any(blend_mask):
                 x_idcs, y_idcs = np.where(blend_mask)
 
                 # Perform blending for valid pixels
-                # gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.ONE)
+                # gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.ONE) #antimatter
                 # dst  = src * (1-dst_a) + dst * 1 <=> dst += src * (1-dst_a)
-                region_rgba[x_idcs, y_idcs] += src_rgba[x_idcs, y_idcs] * (1 - region_rgba[x_idcs, y_idcs, 3, np.newaxis])
+                region_rgba[x_idcs, y_idcs] += src_rgba[x_idcs, y_idcs] * (
+                            1 - region_rgba[x_idcs, y_idcs, 3, np.newaxis])
 
             # Update the original arrays
-            img_rgba[min_y:max_y, min_x:max_x] = region_rgba
+            img_rgba[min_y_px:max_y_px, min_x_px:max_x_px] = region_rgba
 
-        alpha_mask = img_rgba[:,:, 3] > 0
-        img_rgba[alpha_mask, :3] /= img_rgba[alpha_mask, 3:4] # unpremult: img.rgb /= img.alpha
-        img_rgba = img_rgba[::-1, :] # image origin was top-left so flip y axis
-        return (np.clip(img_rgba, 0, 1) * 255).astype(np.uint8)
+        img_rgba = np.flipud(img_rgba)  # upside down
+        img_rgb = img_rgba[:, :, :3]
+        return (np.clip(img_rgb, 0, 1) * 255).astype(np.uint8)
+
+
+def ndc_to_px(f, viewport):
+    return (f + 1) * viewport / 2

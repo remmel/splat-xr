@@ -15,11 +15,9 @@ async function main() {
 
 
 
-    // const url = 'dataset/train.splat'
+     // const url = 'ds/axis.splat'
     const url = 'tmp/gs_Emma_26fev_converted_by_kwok.splat'
-    // const url = 'tmp/gs_Emma_26fev_low.splat'
-    // const url = 'tmp/test.splat'
-    // const url = new URLSearchParams(location.search).get("url") ?? 'https://huggingface.co/cakewalk/splat-data/resolve/main/train.splat'
+//     const url = 'ds/train.splat' // https://huggingface.co/cakewalk/splat-data/resolve/main/train.splat
 
     let xrSession = null;
     let xrReferenceSpace = null;
@@ -41,7 +39,6 @@ async function main() {
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height)
 
     const renderSplats = new RenderSplats(gl)
-    // const renderSplats = new RenderSplatsDebug(gl)
     await renderSplats.fetch(url)
     document.getElementById("spinner").style.display = "none"
 
@@ -52,7 +49,7 @@ async function main() {
         fps.log(true, false)
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
-        // const view = animateCarrouselMouvement(worldTransform)
+//         const view = animateCarrouselMouvement(worldTransform)
 
         view = [
             1, 0, 0, 0,
