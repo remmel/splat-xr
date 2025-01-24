@@ -1,3 +1,7 @@
+
+const useQuad = 1 // will use rotated quads -  standard way to render splats in opengl
+// const useQuad = 0 // will use un-rotated rects (aligned with axis) - to match python
+
 // language=glsl
 export const vertexShaderSource = `
 #version 300 es
@@ -71,42 +75,27 @@ void main () {
         (cov.w >> 24) & 0xffu
     ) / 255.0;
 
-//    if(aIndex != 928310 ) return; // large diagonal splats, use with fragColor = vec4(1.0, 0.0, 0.0, 1.0);
-
     vCenter = vec2(pos2d) / pos2d.w; //[-1,1]
 
     vPosition = aPosition;
-//    gl_Position = vec4(vCenter + 4.0 * (aPosition.x * majorAxis + aPosition.y * minorAxis) / uViewport, 0.0, 1.0);
-
+    
     // pos0 are [-1,1]
+    vec2 axisSumPx = abs(majorAxis) + abs(minorAxis);
     vec2 axisSum01 = (abs(majorAxis) + abs(minorAxis))/uViewport;
     vec2 minRect = vCenter - 4.0 * axisSum01, maxRect = vCenter + 4.0 * axisSum01;
-//    vec2 pos0 = vec2(vCenter + 4.0 * (-majorAxis -minorAxis) / uViewport);
-//    vec2 pos1 = vec2(vCenter + 4.0 * (-majorAxis +minorAxis) / uViewport);
-//    vec2 pos2 = vec2(vCenter + 4.0 * (+majorAxis -minorAxis) / uViewport);
-//    vec2 pos3 = vec2(vCenter + 4.0 * (+majorAxis +minorAxis) / uViewport);
-//    vec2 minRect = min(min(pos0, pos1), min(pos2, pos3));
-//    vec2 maxRect = max(max(pos0, pos1), max(pos2, pos3));
     vec2 minRect_px = ndcToPx(minRect,uViewport), maxRect_px = ndcToPx(maxRect, uViewport);
     rectSize_px = maxRect_px - minRect_px;
+    
+    #if ${useQuad}
+        // to use with default rasterisation pipeline
+        gl_Position = vec4(vCenter + 4.0 * (aPosition.x * majorAxis + aPosition.y * minorAxis) / uViewport, 0.0, 1.0);
+    #else
+        // generating fragment as unrotated rectangle, it has impact on the localPos
+        gl_Position = vec4(vCenter + 4.0 * (aPosition * axisSumPx) / uViewport, 0.0, 1.0);
+    #endif
 
-    // generating fragment as unrotated rectangle, it has impact on the localPos
-    if(aPosition == vec2(-1.0,-1.0)) {
-//        gl_Position = vec4(pos0, 0.0, 1.0);
-        gl_Position = vec4(minRect.x, minRect.y, 0.0, 1.0);
-    } else if(aPosition == vec2(-1.0,1.0)) {
-//        gl_Position = vec4(pos1, 0.0, 1.0);
-        gl_Position = vec4(minRect.x, maxRect.y, 0.0, 1.0);
-    } else if(aPosition == vec2(1.0,-1.0)) {
-//        gl_Position = vec4(pos2, 0.0, 1.0);
-        gl_Position = vec4(maxRect.x, minRect.y, 0.0, 1.0);
-    } else if(aPosition == vec2(1.0,1.0)) {
-//        gl_Position = vec4(pos3, 0.0, 1.0);
-        gl_Position = vec4(maxRect.x, maxRect.y, 0.0, 1.0);
-    }
-
-        vMajorAxis = majorAxis;
-        vMinorAxis = minorAxis;
+    vMajorAxis = majorAxis;
+    vMinorAxis = minorAxis;
 }
 `.trim();
 
@@ -127,7 +116,7 @@ uniform vec2 uViewport;
 
 layout(location = 0) out vec4 fragColor;
 
-// [-1, 1] => [0, 1920]
+// [-1, 1] => [0, 1919]
 vec2 ndcToPx(vec2 ndc, vec2 vp) {
     return (ndc * 0.5 + 0.5) * vp;
 }
@@ -136,22 +125,21 @@ void main () {
     vec2 centerPx = ndcToPx(vCenter, uViewport);
     vec2 delta_px = gl_FragCoord.xy - centerPx;
 
+#if ${useQuad}
+    float A = dot(vPosition*2.0, vPosition*2.0);
+#else
     //vec2 localPos = (delta_px / rectSize_px) * 4.0; //[-1, 1] local-relative - not rotated (rect)
-// TODO some optimization to discard points outside quad (which is calculated in the vertex)
-
+    // TODO some optimization to discard points outside quad (which is calculated in the vertex)
     vec2 localPos = vec2(
         dot(delta_px, normalize(vMajorAxis)) / length(vMajorAxis),
         dot(delta_px, normalize(vMinorAxis)) / length(vMinorAxis)); // [-1, 1] - rotated (rect)
 
     float A = dot(localPos, localPos);
-//    float A = dot(vPosition*2.0, vPosition*2.0);
+#endif
+    
     if (A > 4.0) discard;
-
     float B = exp(-A) * vColor.a;
-//    if(B < 1.0/255.0) discard;
-//    fragColor = vec4(localPos.y, 0.0, 0.0, 1.0);
-//    fragColor = vec4(vPosition.y, 0.0, 0.0, 1.0);
-//    fragColor = vec4(1.0, 0.0, 0.0, 1.0);
+    if(B < 1.0/255.0) discard;
     fragColor = vec4(vColor.rgb * B, B);
 }
 `.trim();
