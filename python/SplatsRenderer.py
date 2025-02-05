@@ -1,4 +1,5 @@
 import numpy as np
+from tqdm import tqdm
 
 from utils import load_splat_file, remove_alpha
 
@@ -105,7 +106,7 @@ class SplatsRenderer:
         rect_min_px, rect_max_px = np.maximum(0, rect_min_px), np.minimum(uViewport, rect_max_px)
         rect_size_px = rect_max_px - rect_min_px
 
-        for idx in indices:
+        for idx in tqdm(indices, desc="rendering by splat"):
             min_x_px, min_y_px = rect_min_px[idx, :]
             max_x_px, max_y_px = rect_max_px[idx, :]
 

@@ -73,14 +73,16 @@ def get_view_proj_matrix_antimatter():
 if __name__ == "__main__":
 
     splatAxis = "../public/ds/axis.splat"
-    splatTrain = "../public/ds/train.splat"
+    splatTrain = "../public/ds/train.splat" # https://huggingface.co/cakewalk/splat-data/resolve/main/train.splat
 
 
     w, h, f = 1000, 1000, 1000
 
+    # choose which splat file to use
     splat, fn = splatAxis, 'axis'
     # splat, fn = splatTrain, 'train'
 
+    # choose which render to use
     renderer, fn_render, og = SplatsRendererLoop(splat), "loop", False
     # renderer, fn_render, og = SplatsRenderer(splat), "vect", False
     # renderer, fn_render, og = SplatsRendererGl(splat, w, h), "gl", True

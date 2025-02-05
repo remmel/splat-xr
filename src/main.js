@@ -16,8 +16,8 @@ async function main() {
 
 
      // const url = 'ds/axis.splat'
-    const url = 'tmp/gs_Emma_26fev_converted_by_kwok.splat'
-//     const url = 'ds/train.splat' // https://huggingface.co/cakewalk/splat-data/resolve/main/train.splat
+//    const url = 'https://huggingface.co/cakewalk/splat-data/resolve/main/train.splat'
+     const url = 'ds/train.splat'
 
     let xrSession = null;
     let xrReferenceSpace = null;

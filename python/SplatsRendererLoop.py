@@ -1,4 +1,5 @@
 import numpy as np
+from tqdm import tqdm
 
 from utils import load_splat_file
 
@@ -97,7 +98,7 @@ class SplatsRendererLoop:
         rect_min_px, rect_max_px = ndc_to_px(rect_min_ndc, uViewport), ndc_to_px(rect_max_ndc, uViewport)
         # rect_min_px, rect_max_px = get_rect(center_ndc, major_axes, minor_axes, uViewport, 4) #gl_Positions
 
-        for idx in indices:
+        for idx in tqdm(indices, desc="rendering by splat"):
             min_x, min_y = rect_min_px[idx, :]
             max_x, max_y = rect_max_px[idx, :]
 

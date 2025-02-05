@@ -15,6 +15,9 @@ npm run dev
 
 To run the python viewers:
 ```shell
+cd python
+conda env create -f environment.yml
+conda activate splat-render
 python main.py
 ```
 

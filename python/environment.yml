@@ -1,0 +1,14 @@
+name: splat-render
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - pyopengl
+      - glfw
+      - tqdm
+      - numpy
+      - matplotlib
+      - pyglm
