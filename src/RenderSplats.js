@@ -1,4 +1,5 @@
 import { fragmentShaderSource, vertexShaderSource } from "./shadersQuads.js"
+// import { fragmentShaderSource, vertexShaderSource } from "./shadersQuadsConic.js"
 import { createProgram, multiply4, packHalf2x16 } from "./utils.js"
 
 export class RenderSplats {

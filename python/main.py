@@ -5,6 +5,7 @@ import matplotlib
 
 from SplatsRendererGlGeo import SplatsRendererGlGeo
 from SplatsRendererGl import SplatsRendererGl
+from SplatsRendererGlGeoConic import SplatsRendererGlGeoConic
 from SplatsRendererGlNoVertexSh import SplatsRendererGlNoVertexSh
 
 matplotlib.use("TkAgg")
@@ -83,10 +84,11 @@ if __name__ == "__main__":
     # splat, fn = splatTrain, 'train'
 
     # choose which render to use
-    renderer, fn_render, og = SplatsRendererLoop(splat), "loop", False
+    # renderer, fn_render, og = SplatsRendererLoop(splat), "loop", False
     # renderer, fn_render, og = SplatsRenderer(splat), "vect", False
     # renderer, fn_render, og = SplatsRendererGl(splat, w, h), "gl", True
     # renderer, fn_render, og = SplatsRendererGlGeo(splat, w, h), "glgeo", True
+    renderer, fn_render, og = SplatsRendererGlGeoConic(splat, w, h), "glgeoconic", True
     # renderer, fn_render, og = SplatsRendererGlNoVertexSh(splat, w, h), "glnovertex", True
 
     output = f"test/{fn}_{fn_render}.png"
