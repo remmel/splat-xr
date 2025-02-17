@@ -21,6 +21,10 @@ conda activate splat-render
 python main.py
 ```
 
+
+Some renderer uses Vulkan (Ubuntu):
+`sudo apt install vulkan-tools libvulkan-dev vulkan-validationlayers-devvulkan-validationlayers glslang-tools`
+
 You might need to
 - call with prefix `__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia python main.py` or
 - add as environment variables `__NV_PRIME_RENDER_OFFLOAD=1;__GLX_VENDOR_LIBRARY_NAME=nvidia`
@@ -35,10 +39,10 @@ How can we explain that pre-multiplying the rgb * a in the fragment boost the fp
   - `gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)` - back to front - 34fps - `fragColor = vec4(vColor.rgb, a)` - `dst.rgba = src.rgba * src.a + dst.rgba * (1-src.a)`
   - as a reference the antimatter version (not conic) - 53fps
 
-## Antimatter vs Conic version
+## Antimatter vs Conic version - rasterization
 Conic version is the one used by INRIA and antimatter uses a more optimized version where "fragment is rotated".
 In the image, in green the splat (without the gaussian opacity) and:
 - in blue the fragment of the conic version (aligned with axis)  
 - in pink the fragment of the antimatter version (rotated)  
-- in gray the fragment of the "un rotated" version, I implemented in webgl and python 
+- in gray the fragment of the antimatter un-rotated version, I implemented in webgl and python 
 ![antimattervsconic.png](doc/antimattervsconic.png)
