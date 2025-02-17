@@ -7,6 +7,7 @@ from SplatsRendererGlGeo import SplatsRendererGlGeo
 from SplatsRendererGl import SplatsRendererGl
 from SplatsRendererGlGeoConic import SplatsRendererGlGeoConic
 from SplatsRendererGlNoVertexSh import SplatsRendererGlNoVertexSh
+from SplatsRendererVkGeo import SplatsRendererVkGeo
 
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
@@ -80,16 +81,17 @@ if __name__ == "__main__":
     w, h, f = 1000, 1000, 1000
 
     # choose which splat file to use
-    splat, fn = splatAxis, 'axis'
-    # splat, fn = splatTrain, 'train'
+    # splat, fn = splatAxis, 'axis'
+    splat, fn = splatTrain, 'train'
 
     # choose which render to use
     # renderer, fn_render, og = SplatsRendererLoop(splat), "loop", False
     # renderer, fn_render, og = SplatsRenderer(splat), "vect", False
     # renderer, fn_render, og = SplatsRendererGl(splat, w, h), "gl", True
     # renderer, fn_render, og = SplatsRendererGlGeo(splat, w, h), "glgeo", True
-    renderer, fn_render, og = SplatsRendererGlGeoConic(splat, w, h), "glgeoconic", True
+    # renderer, fn_render, og = SplatsRendererGlGeoConic(splat, w, h), "glgeoconic", True
     # renderer, fn_render, og = SplatsRendererGlNoVertexSh(splat, w, h), "glnovertex", True
+    renderer, fn_render, og = SplatsRendererVkGeo(splat, w, h), "vkgeo", True
 
     output = f"test/{fn}_{fn_render}.png"
 
@@ -108,7 +110,7 @@ if __name__ == "__main__":
 
     else:
         # OpenGL renderers
-        loop = False # display and save once, or loop
+        loop = True # display and save once, or loop
         renderer.sort(view @ proj)
         if not loop:
             with timer('draw'):

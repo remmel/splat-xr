@@ -7,9 +7,6 @@ import glfw
 
 from utils import load_splat_file
 
-WIDTH = 800
-HEIGHT = 600
-
 validationLayers = ["VK_LAYER_KHRONOS_validation"]
 deviceExtensions = [VK_KHR_SWAPCHAIN_EXTENSION_NAME]
 
@@ -91,8 +88,22 @@ class SplatsRendererVkGeo(object):
         self.__imageAvailableSemaphore = None
         self.__renderFinishedSemaphore = None
 
+        self.stride = 4 * (3 + 3 + 4 + 4)  # pos(3) + scale(3) + rot(4) + color(4)
         self.points = load_splat_file(splat_file_path)
         self.positions, self.scales, self.rotations, self.colors = self.points
+        self.num_points = len(self.positions)
+        self.vertex_buffer = None
+        self.vertex_buffer_memory = None
+        self.uniform_buffer = None
+        self.uniform_buffer_memory = None
+        self.descriptor_pool = None
+        self.descriptor_set_layout = None
+        self.descriptor_sets = None
+        self.view_proj_ubo = None
+
+        self.__initWindow()
+        self.__initVulkan()
+
 
     def sort(self, viewProj):
         if viewProj is None:
@@ -103,13 +114,51 @@ class SplatsRendererVkGeo(object):
             depths = cam[:, 2]
             indices = np.argsort(depths).astype(np.uint32)
 
-        # TODO upload order into gpu
+        # indices = indices[::-1]
+
+        # TODO upload order into gpu instead later
+        self.positions = self.positions[indices]
+        self.scales = self.scales[indices]
+        self.rotations = self.rotations[indices]
+        self.colors = self.colors[indices]
+        self.__createVertexBuffer()
+
 
     def draw(self, view, proj, w, h, f):
-        pass
+        # Update the UBO with the new view and projection matrices
+
+        self.view_proj_ubo['view'] = view
+        self.view_proj_ubo['proj'] = proj
+        self.view_proj_ubo['width'] = w
+        self.view_proj_ubo['height'] = h
+        self.view_proj_ubo['focal'] = f
+
+        # Copy the data to the mapped memory
+        data_ptr = vkMapMemory(self.__device, self.uniform_buffer_memory, 0, self.view_proj_ubo.itemsize, 0)
+        ffi.memmove(data_ptr, ffi.from_buffer(self.view_proj_ubo), self.view_proj_ubo.itemsize)
+        vkUnmapMemory(self.__device, self.uniform_buffer_memory)
+
 
     def __del__(self):
         vkDeviceWaitIdle(self.__device)
+
+        # --- Cleanup Point Cloud Specific Resources ---
+        if self.vertex_buffer:
+            vkDestroyBuffer(self.__device, self.vertex_buffer, None)
+        if self.vertex_buffer_memory:
+            vkFreeMemory(self.__device, self.vertex_buffer_memory, None)
+
+        if self.uniform_buffer:
+            vkDestroyBuffer(self.__device, self.uniform_buffer, None)
+        if self.uniform_buffer_memory:
+            vkFreeMemory(self.__device, self.uniform_buffer_memory, None)
+
+        if self.descriptor_pool:
+            vkDestroyDescriptorPool(self.__device, self.descriptor_pool, None)
+
+        if self.descriptor_set_layout:
+            vkDestroyDescriptorSetLayout(self.__device, self.descriptor_set_layout, None)
+
 
         if self.__imageAvailableSemaphore:
             vkDestroySemaphore(self.__device, self.__imageAvailableSemaphore, None)
@@ -162,7 +211,7 @@ class SplatsRendererVkGeo(object):
         glfw.window_hint(glfw.CLIENT_API, glfw.NO_API)
         glfw.window_hint(glfw.RESIZABLE, False)
 
-        self.__window = glfw.create_window(WIDTH, HEIGHT, "Vulkan", None, None)
+        self.__window = glfw.create_window(self.width, self.height, "Vulkan", None, None)
 
     def __initVulkan(self):
         self.__createInstance()
@@ -173,10 +222,15 @@ class SplatsRendererVkGeo(object):
         self.__createSwapChain()
         self.__createImageViews()
         self.__createRenderPass()
+        self.__createDescriptorSetLayout()  # Before pipeline
         self.__createGraphicsPipeline()
         self.__createFramebuffers()
         self.__createCommandPool()
-        self.__createCommandBuffers()
+        self.__createVertexBuffer()        # Point cloud vertex data
+        self.__createUniformBuffer()         # For view/proj matrices
+        self.__createDescriptorPool()
+        self.__createDescriptorSets()
+        self.__createCommandBuffers()        # Now includes point cloud drawing
         self.__createSemaphores()
 
     def __createInstance(self):
@@ -387,10 +441,31 @@ class SplatsRendererVkGeo(object):
 
         self.__renderPass = vkCreateRenderPass(self.__device, renderPassInfo, None)
 
+    def __createDescriptorSetLayout(self):
+        uboLayoutBinding = VkDescriptorSetLayoutBinding(
+            binding=0,
+            descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            descriptorCount=1,
+            stageFlags=VK_SHADER_STAGE_VERTEX_BIT,
+            pImmutableSamplers=None
+        )
+
+        layoutInfo = VkDescriptorSetLayoutCreateInfo(
+            sType=VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            bindingCount=1,
+            pBindings=uboLayoutBinding  # Corrected: Pass the binding directly
+        )
+
+        self.descriptor_set_layout = vkCreateDescriptorSetLayout(self.__device, layoutInfo, None)
+        if self.descriptor_set_layout is None:
+            raise RuntimeError("Failed to create descriptor set layout!")
+
+
     def __createGraphicsPipeline(self):
         dir = Path(__file__).resolve().parent / 'vk_shaders'
-        vertShaderModule = self.__createShaderModule(dir / 'hello_triangle_vert.spv')
-        fragShaderModule = self.__createShaderModule(dir / 'hello_triangle_frag.spv')
+
+        vertShaderModule = self.__createShaderModule(dir / 'points_vert.spv')
+        fragShaderModule = self.__createShaderModule(dir / 'points_frag.spv')
 
         vertShaderStageInfo = VkPipelineShaderStageCreateInfo(
             sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -410,21 +485,64 @@ class SplatsRendererVkGeo(object):
 
         shaderStages = [vertShaderStageInfo, fragShaderStageInfo]
 
-        vertexInputInfo = VkPipelineVertexInputStateCreateInfo(
-            sType=VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-            vertexBindingDescriptionCount=0,
-            vertexAttributeDescriptionCount=0
+        # --- Vertex Input Description ---
+        bindingDescription = VkVertexInputBindingDescription(
+            binding=0,
+            stride=self.stride,
+            inputRate=VK_VERTEX_INPUT_RATE_VERTEX
         )
 
+        offset = 0
+        positionAttributeDescription = VkVertexInputAttributeDescription(
+            binding=0,
+            location=0,
+            format=VK_FORMAT_R32G32B32_SFLOAT,  # XYZ position
+            offset=offset
+        )
+        offset += 3 * 4
+
+        scaleAttributeDescription = VkVertexInputAttributeDescription(
+            binding=0,
+            location=1,
+            format=VK_FORMAT_R32G32B32_SFLOAT,  # scale
+            offset=offset
+        )
+        offset += 3 * 4
+
+        rotAttributeDescription = VkVertexInputAttributeDescription(
+            binding = 0,
+            location = 2,
+            format = VK_FORMAT_R32G32B32A32_SFLOAT,  # quaternion
+            offset = offset
+        )
+        offset += 4 * 4
+
+        colorAttributeDescription = VkVertexInputAttributeDescription(
+            binding=0,
+            location=3,
+            format=VK_FORMAT_R32G32B32A32_SFLOAT,  # color (RGBA)
+            offset=offset
+        )
+        offset += 4 * 4
+
+        assert offset == self.stride
+
+        vertexInputInfo = VkPipelineVertexInputStateCreateInfo(
+            sType=VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+            vertexBindingDescriptionCount=1,
+            pVertexBindingDescriptions=bindingDescription,
+            vertexAttributeDescriptionCount=4,
+            pVertexAttributeDescriptions=[positionAttributeDescription, scaleAttributeDescription, rotAttributeDescription, colorAttributeDescription]
+        )
+        # --- Input Assembly ---
         inputAssembly = VkPipelineInputAssemblyStateCreateInfo(
             sType=VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-            topology=VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-            primitiveRestartEnable=True
+            topology=VK_PRIMITIVE_TOPOLOGY_POINT_LIST,
+            primitiveRestartEnable=False # False for points
         )
 
         viewport = VkViewport(0.0, 0.0,
-                              float(self.__swapChainExtent.width),
-                              float(self.__swapChainExtent.height),
+                              float(self.__swapChainExtent.width), float(self.__swapChainExtent.height),
                               0.0, 1.0)
         scissor = VkRect2D([0, 0], self.__swapChainExtent)
         viewportState = VkPipelineViewportStateCreateInfo(
@@ -442,7 +560,7 @@ class SplatsRendererVkGeo(object):
             polygonMode=VK_POLYGON_MODE_FILL,
             lineWidth=1.0,
             cullMode=VK_CULL_MODE_BACK_BIT,
-            frontFace=VK_FRONT_FACE_CLOCKWISE,
+            frontFace=VK_FRONT_FACE_COUNTER_CLOCKWISE, # counter clock wise
             depthBiasEnable=False
         )
 
@@ -454,7 +572,13 @@ class SplatsRendererVkGeo(object):
 
         colorBlendAttachment = VkPipelineColorBlendAttachmentState(
             colorWriteMask=VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
-            blendEnable=False
+            blendEnable=True,
+            srcColorBlendFactor=VK_BLEND_FACTOR_SRC_ALPHA,
+            dstColorBlendFactor=VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+            colorBlendOp=VK_BLEND_OP_ADD,
+            srcAlphaBlendFactor=VK_BLEND_FACTOR_ONE,
+            dstAlphaBlendFactor=VK_BLEND_FACTOR_ZERO,
+            alphaBlendOp=VK_BLEND_OP_ADD
         )
 
         colorBlending = VkPipelineColorBlendStateCreateInfo(
@@ -466,14 +590,21 @@ class SplatsRendererVkGeo(object):
             blendConstants=[0.0, 0.0, 0.0, 0.0]
         )
 
+        # --- Pipeline Layout (with descriptor set layout) ---
+        set_layouts = ffi.new('VkDescriptorSetLayout[]', [self.descriptor_set_layout]) # Corrected
         pipelineLayoutInfo = VkPipelineLayoutCreateInfo(
             sType=VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-            setLayoutCount=0,
+            setLayoutCount=1,  #  One descriptor set layout
+            pSetLayouts=set_layouts, # Pass the pointer to the C array
             pushConstantRangeCount=0
         )
 
         self.__pipelineLayout = vkCreatePipelineLayout(self.__device, pipelineLayoutInfo, None)
+        if self.__pipelineLayout is None:
+            raise RuntimeError("Failed to create pipeline layout!")
 
+
+        # --- Graphics Pipeline ---
         pipelineInfo = VkGraphicsPipelineCreateInfo(
             sType=VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
             stageCount=2,
@@ -490,6 +621,9 @@ class SplatsRendererVkGeo(object):
         )
 
         self.__graphicsPipeline = vkCreateGraphicsPipelines(self.__device, VK_NULL_HANDLE, 1, pipelineInfo, None)[0]
+        if self.__graphicsPipeline is None:
+             raise RuntimeError("Failed to create graphics pipeline!")
+
 
         vkDestroyShaderModule(self.__device, vertShaderModule, None)
         vkDestroyShaderModule(self.__device, fragShaderModule, None)
@@ -521,6 +655,86 @@ class SplatsRendererVkGeo(object):
         )
 
         self.__commandPool = vkCreateCommandPool(self.__device, poolInfo, None)
+
+    def __createVertexBuffer(self):
+        bufferSize = self.stride * self.num_points
+
+        stagingBuffer, stagingBufferMemory = self.__createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+
+        # Combine position and color data into a single array
+        vertex_data = np.column_stack([self.positions, self.scales, self.rotations, self.colors]).flatten().astype(np.float32)
+
+        data_ptr = vkMapMemory(self.__device, stagingBufferMemory, 0, bufferSize, 0)
+        ffi.memmove(data_ptr, vertex_data.data, bufferSize) # vertex_data.data is nsc.Array and is contiguous
+        vkUnmapMemory(self.__device, stagingBufferMemory)
+
+        self.vertex_buffer, self.vertex_buffer_memory = self.__createBuffer(bufferSize,
+                                                                              VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                                                              VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+
+        self.__copyBuffer(stagingBuffer, self.vertex_buffer, bufferSize)
+
+        vkDestroyBuffer(self.__device, stagingBuffer, None)
+        vkFreeMemory(self.__device, stagingBufferMemory, None)
+
+    def __createUniformBuffer(self):
+        self.view_proj_ubo = np.zeros(1, dtype=[
+            ('view', np.float32, (4, 4)),
+            ('proj', np.float32, (4, 4)),
+            ('width', np.float32, (1)),
+            ('height', np.float32, (1)),
+            ('focal', np.float32, (1))
+        ])
+
+        bufferSize = self.view_proj_ubo.itemsize
+        self.uniform_buffer, self.uniform_buffer_memory = self.__createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                                                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+
+    def __createDescriptorPool(self):
+        poolSize = VkDescriptorPoolSize(
+            type=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            descriptorCount=1
+        )
+        poolInfo = VkDescriptorPoolCreateInfo(
+            sType=VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+            poolSizeCount=1,
+            pPoolSizes=poolSize,
+            maxSets=1  #  One set for our UBO
+        )
+
+        self.descriptor_pool = vkCreateDescriptorPool(self.__device, poolInfo, None)
+
+
+    def __createDescriptorSets(self):
+
+        layouts = [self.descriptor_set_layout] #, ] * len(self.__swapChainImages)
+        allocInfo = VkDescriptorSetAllocateInfo(
+            sType=VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            descriptorPool=self.descriptor_pool,
+            descriptorSetCount=1,  # One set per swapchain image
+            pSetLayouts=layouts
+        )
+        descriptor_sets = vkAllocateDescriptorSets(self.__device, allocInfo)
+        self.descriptor_sets = [ffi.addressof(descriptor_sets, i)[0] for i in range(1)]
+
+        descriptorBufferInfo = VkDescriptorBufferInfo(
+            buffer=self.uniform_buffer,
+            offset=0,
+            range=self.view_proj_ubo.itemsize  # Or VK_WHOLE_SIZE
+        )
+        descriptorWrite = VkWriteDescriptorSet(
+            sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            dstSet=self.descriptor_sets[0],
+            dstBinding=0,
+            dstArrayElement=0,
+            descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            descriptorCount=1,
+            pBufferInfo=descriptorBufferInfo
+        )
+
+        vkUpdateDescriptorSets(self.__device, 1, descriptorWrite, 0, None)
+
 
     def __createCommandBuffers(self):
         # self.__commandBuffers = []
@@ -557,7 +771,15 @@ class SplatsRendererVkGeo(object):
             vkCmdBeginRenderPass(cmdBuffer, renderPassInfo, VK_SUBPASS_CONTENTS_INLINE)
 
             vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, self.__graphicsPipeline)
-            vkCmdDraw(cmdBuffer, 3, 1, 0, 0)
+
+            # --- Bind Vertex Buffer ---
+            vkCmdBindVertexBuffers(cmdBuffer, 0, 1, [self.vertex_buffer, ], [0, ])
+
+            # --- Bind Descriptor Set (UBO) ---
+            vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, self.__pipelineLayout, 0, 1, self.descriptor_sets, 0, None)
+
+            # --- Draw Points ---
+            vkCmdDraw(cmdBuffer, self.num_points, 1, 0, 0)  # Draw all points
 
             vkCmdEndRenderPass(cmdBuffer)
 
@@ -568,6 +790,73 @@ class SplatsRendererVkGeo(object):
 
         self.__imageAvailableSemaphore = vkCreateSemaphore(self.__device, semaphoreInfo, None)
         self.__renderFinishedSemaphore = vkCreateSemaphore(self.__device, semaphoreInfo, None)
+
+    def __createBuffer(self, size, usage, properties):
+        bufferInfo = VkBufferCreateInfo(
+            sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            size=size,
+            usage=usage,
+            sharingMode=VK_SHARING_MODE_EXCLUSIVE
+        )
+
+        buffer = vkCreateBuffer(self.__device, bufferInfo, None)
+
+        memRequirements = vkGetBufferMemoryRequirements(self.__device, buffer)
+
+        allocInfo = VkMemoryAllocateInfo(
+            sType=VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            allocationSize=memRequirements.size,
+            memoryTypeIndex=self.__findMemoryType(memRequirements.memoryTypeBits, properties)
+        )
+
+        memory = vkAllocateMemory(self.__device, allocInfo, None)
+
+        vkBindBufferMemory(self.__device, buffer, memory, 0)
+
+        return buffer, memory
+
+    def __findMemoryType(self, typeFilter, properties):
+        memProperties = vkGetPhysicalDeviceMemoryProperties(self.__physicalDevice)
+
+        for i, memoryType in enumerate(memProperties.memoryTypes):
+            if (typeFilter & (1 << i)) and (memoryType.propertyFlags & properties) == properties:
+                return i
+
+        raise Exception("failed to find suitable memory type!")
+
+    def __copyBuffer(self, srcBuffer, dstBuffer, size):
+        allocInfo = VkCommandBufferAllocateInfo(
+            sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            commandPool=self.__commandPool,
+            level=VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            commandBufferCount=1
+        )
+
+        commandBuffers = vkAllocateCommandBuffers(self.__device, allocInfo)
+        commandBuffer = ffi.addressof(commandBuffers, 0)[0]
+
+        beginInfo = VkCommandBufferBeginInfo(
+            sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+        )
+
+        vkBeginCommandBuffer(commandBuffer, beginInfo)
+
+        copyRegion = VkBufferCopy(0, 0, size)
+        vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, copyRegion)
+
+        vkEndCommandBuffer(commandBuffer)
+
+        submitInfo = VkSubmitInfo(
+            sType=VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            commandBufferCount=1,
+            pCommandBuffers=[commandBuffer]
+        )
+
+        vkQueueSubmit(self.__graphicsQueue, 1, submitInfo, VK_NULL_HANDLE)
+        vkQueueWaitIdle(self.__graphicsQueue)  # TODO use a fence to avoid waiting if possible
+
+        vkFreeCommandBuffers(self.__device, self.__commandPool, 1, [commandBuffer])
 
     def __drawFrame(self):
         vkAcquireNextImageKHR = vkGetDeviceProcAddr(self.__device, 'vkAcquireNextImageKHR')
@@ -619,7 +908,6 @@ class SplatsRendererVkGeo(object):
 
             return vkCreateShaderModule(self.__device, createInfo, None)
 
-
     def __chooseSwapSurfaceFormat(self, availableFormats):
         if len(availableFormats) == 1 and availableFormats[0].format == VK_FORMAT_UNDEFINED:
             return VkSurfaceFormatKHR(VK_FORMAT_B8G8R8A8_UNORM, 0)
@@ -638,20 +926,23 @@ class SplatsRendererVkGeo(object):
         return VK_PRESENT_MODE_FIFO_KHR
 
     def __chooseSwapExtent(self, capabilities):
-        width = max(capabilities.minImageExtent.width, min(capabilities.maxImageExtent.width, WIDTH))
-        height = max(capabilities.minImageExtent.height, min(capabilities.maxImageExtent.height, HEIGHT))
+        width = max(capabilities.minImageExtent.width, min(capabilities.maxImageExtent.width, self.width))
+        height = max(capabilities.minImageExtent.height, min(capabilities.maxImageExtent.height, self.height))
         return VkExtent2D(width, height)
 
     def __querySwapChainSupport(self, device):
         details = SwapChainSupportDetails()
 
-        vkGetPhysicalDeviceSurfaceCapabilitiesKHR = vkGetInstanceProcAddr(self.__instance, 'vkGetPhysicalDeviceSurfaceCapabilitiesKHR')
+        vkGetPhysicalDeviceSurfaceCapabilitiesKHR = vkGetInstanceProcAddr(self.__instance,
+                                                                          'vkGetPhysicalDeviceSurfaceCapabilitiesKHR')
         details.capabilities = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, self.__surface)
 
-        vkGetPhysicalDeviceSurfaceFormatsKHR = vkGetInstanceProcAddr(self.__instance, 'vkGetPhysicalDeviceSurfaceFormatsKHR')
+        vkGetPhysicalDeviceSurfaceFormatsKHR = vkGetInstanceProcAddr(self.__instance,
+                                                                     'vkGetPhysicalDeviceSurfaceFormatsKHR')
         details.formats = vkGetPhysicalDeviceSurfaceFormatsKHR(device, self.__surface)
 
-        vkGetPhysicalDeviceSurfacePresentModesKHR = vkGetInstanceProcAddr(self.__instance, 'vkGetPhysicalDeviceSurfacePresentModesKHR')
+        vkGetPhysicalDeviceSurfacePresentModesKHR = vkGetInstanceProcAddr(self.__instance,
+                                                                          'vkGetPhysicalDeviceSurfacePresentModesKHR')
         details.presentModes = vkGetPhysicalDeviceSurfacePresentModesKHR(device, self.__surface)
 
         return details
@@ -662,7 +953,8 @@ class SplatsRendererVkGeo(object):
         swapChainAdequate = False
         if extensionsSupported:
             swapChainSupport = self.__querySwapChainSupport(device)
-            swapChainAdequate = (not swapChainSupport.formats is None) and (not swapChainSupport.presentModes is None)
+            swapChainAdequate = (not swapChainSupport.formats is None) and (
+                not swapChainSupport.presentModes is None)
         return indices.isComplete() and extensionsSupported and swapChainAdequate
 
     def __checkDeviceExtensionSupport(self, device):
@@ -675,7 +967,8 @@ class SplatsRendererVkGeo(object):
         return False
 
     def __findQueueFamilies(self, device):
-        vkGetPhysicalDeviceSurfaceSupportKHR = vkGetInstanceProcAddr(self.__instance,'vkGetPhysicalDeviceSurfaceSupportKHR')
+        vkGetPhysicalDeviceSurfaceSupportKHR = vkGetInstanceProcAddr(self.__instance,
+                                                                     'vkGetPhysicalDeviceSurfaceSupportKHR')
         indices = QueueFamilyIndices()
 
         queueFamilies = vkGetPhysicalDeviceQueueFamilyProperties(device)
@@ -717,8 +1010,7 @@ class SplatsRendererVkGeo(object):
         return True
 
     def loop(self, view, proj, w, h, f):
-        self.__initWindow()
-        self.__initVulkan()
         while not glfw.window_should_close(self.__window):
             glfw.poll_events()
+            self.draw(view, proj, w, h, f)
             self.__drawFrame()
