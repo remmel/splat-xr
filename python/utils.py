@@ -73,6 +73,8 @@ class Glfw:
         if not visible:
             glfw.window_hint(glfw.VISIBLE, False)
 
+        glfw.window_hint(glfw.RESIZABLE, False) #keep it unresizable for benchmark purposes
+
         self.window = glfw.create_window(width, height, title, None, None)
         if not self.window:
             glfw.terminate()

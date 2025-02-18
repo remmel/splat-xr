@@ -3,6 +3,8 @@
 The objective of that repository is for learning purposes duplicate the antimatter webgl viewer.
 Implementations using:
 - Opengl (using geometry shader)
+- Vulkan (using geometry shader)
+- Opengl conic (vs eigenvectors)
 - python numpy
 - python loop
 
