@@ -17,7 +17,6 @@ layout(binding = 0) uniform UniformBufferObject {
 
 void main() {
     gl_Position = ubo.proj * ubo.view * vec4(inPosition, 1.0);
-    gl_PointSize = 4.0;
 
     vColor = inColor;
 }

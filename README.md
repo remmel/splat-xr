@@ -21,13 +21,15 @@ conda activate splat-render
 python main.py
 ```
 
-
-Some renderer uses Vulkan (Ubuntu):
-`sudo apt install vulkan-tools libvulkan-dev vulkan-validationlayers-devvulkan-validationlayers glslang-tools`
-
 You might need to
 - call with prefix `__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia python main.py` or
 - add as environment variables `__NV_PRIME_RENDER_OFFLOAD=1;__GLX_VENDOR_LIBRARY_NAME=nvidia`
+
+Some renderer uses Vulkan (Ubuntu):
+- Install:  
+`sudo apt install vulkan-tools libvulkan-dev vulkan-validationlayers-devvulkan-validationlayers glslang-tools`
+- To compile shader and run:  
+`(cd vk_shaders && bash ./compile.sh) && python main.py`
 
 
 # Technicals explanations

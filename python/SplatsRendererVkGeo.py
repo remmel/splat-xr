@@ -313,7 +313,9 @@ class SplatsRendererVkGeo(object):
             )
             queueCreateInfos.append(queueCreateInfo)
 
-        deviceFeatures = VkPhysicalDeviceFeatures()
+        deviceFeatures = VkPhysicalDeviceFeatures(
+            geometryShader=True  # Enable geometry shader feature
+        )
         createInfo = None
         if enableValidationLayers:
             createInfo = VkDeviceCreateInfo(
@@ -446,7 +448,7 @@ class SplatsRendererVkGeo(object):
             binding=0,
             descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
             descriptorCount=1,
-            stageFlags=VK_SHADER_STAGE_VERTEX_BIT,
+            stageFlags=VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
             pImmutableSamplers=None
         )
 
@@ -465,6 +467,7 @@ class SplatsRendererVkGeo(object):
         dir = Path(__file__).resolve().parent / 'vk_shaders'
 
         vertShaderModule = self.__createShaderModule(dir / 'points_vert.spv')
+        geomShaderModule = self.__createShaderModule(dir / 'points_geom.spv')
         fragShaderModule = self.__createShaderModule(dir / 'points_frag.spv')
 
         vertShaderStageInfo = VkPipelineShaderStageCreateInfo(
@@ -472,6 +475,14 @@ class SplatsRendererVkGeo(object):
             flags=0,
             stage=VK_SHADER_STAGE_VERTEX_BIT,
             module=vertShaderModule,
+            pName='main'
+        )
+
+        geomShaderStageInfo = VkPipelineShaderStageCreateInfo(
+            sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            flags=0,
+            stage=VK_SHADER_STAGE_GEOMETRY_BIT,
+            module=geomShaderModule,
             pName='main'
         )
 
@@ -483,7 +494,7 @@ class SplatsRendererVkGeo(object):
             pName='main'
         )
 
-        shaderStages = [vertShaderStageInfo, fragShaderStageInfo]
+        shaderStages = [vertShaderStageInfo, geomShaderStageInfo, fragShaderStageInfo]
 
         # --- Vertex Input Description ---
         bindingDescription = VkVertexInputBindingDescription(
@@ -559,8 +570,8 @@ class SplatsRendererVkGeo(object):
             rasterizerDiscardEnable=False,
             polygonMode=VK_POLYGON_MODE_FILL,
             lineWidth=1.0,
-            cullMode=VK_CULL_MODE_BACK_BIT,
-            frontFace=VK_FRONT_FACE_COUNTER_CLOCKWISE, # counter clock wise
+            cullMode=VK_CULL_MODE_NONE,
+            # frontFace=VK_FRONT_FACE_COUNTER_CLOCKWISE,
             depthBiasEnable=False
         )
 
@@ -607,7 +618,7 @@ class SplatsRendererVkGeo(object):
         # --- Graphics Pipeline ---
         pipelineInfo = VkGraphicsPipelineCreateInfo(
             sType=VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-            stageCount=2,
+            stageCount=len(shaderStages),
             pStages=shaderStages,
             pVertexInputState=vertexInputInfo,
             pInputAssemblyState=inputAssembly,
@@ -626,6 +637,7 @@ class SplatsRendererVkGeo(object):
 
 
         vkDestroyShaderModule(self.__device, vertShaderModule, None)
+        vkDestroyShaderModule(self.__device, geomShaderModule, None)
         vkDestroyShaderModule(self.__device, fragShaderModule, None)
 
     def __createFramebuffers(self):
