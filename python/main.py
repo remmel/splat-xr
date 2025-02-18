@@ -81,8 +81,8 @@ if __name__ == "__main__":
     w, h, f = 1000, 1000, 1000
 
     # choose which splat file to use
-    # splat, fn = splatAxis, 'axis'
-    splat, fn = splatTrain, 'train'
+    splat, fn = splatAxis, 'axis'
+    # splat, fn = splatTrain, 'train'
 
     # choose which render to use
     # renderer, fn_render, og = SplatsRendererLoop(splat), "loop", False
@@ -109,8 +109,8 @@ if __name__ == "__main__":
         plt.show()
 
     else:
-        # OpenGL renderers
-        loop = True # display and save once, or loop
+        # OpenGL/Vk renderers
+        loop = False # display and save once, or loop
         renderer.sort(view @ proj)
         if not loop:
             with timer('draw'):

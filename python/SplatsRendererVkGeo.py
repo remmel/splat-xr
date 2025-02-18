@@ -376,7 +376,7 @@ class SplatsRendererVkGeo(object):
             imageColorSpace=surfaceFormat.colorSpace,
             imageExtent=extent,
             imageArrayLayers=1,
-            imageUsage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+            imageUsage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT #src_bit needed to copy image
         )
 
         indices = self.__findQueueFamilies(self.__physicalDevice)
@@ -1062,9 +1062,117 @@ class SplatsRendererVkGeo(object):
 
         return True
 
+    def readImage(self) -> np.array:
+        width = self.__swapChainExtent.width
+        height = self.__swapChainExtent.height
+        image_size = width * height * 4  # 4 bytes per pixel (RGBA)
+
+        # Draw the frame first
+        self.__drawFrame()
+
+        # Create staging buffer for final image data
+        stagingBuffer, stagingBufferMemory = self.__createBuffer(
+            image_size,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        )
+
+        # Create a single command buffer for all operations
+        cmdBuf = vkAllocateCommandBuffers(self.__device, VkCommandBufferAllocateInfo(
+            sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            commandPool=self.__commandPool,
+            level=VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            commandBufferCount=1
+        ))[0]
+
+        # Begin command buffer recording
+        vkBeginCommandBuffer(cmdBuf, VkCommandBufferBeginInfo(
+            sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+        ))
+
+        # Copy from swapchain image to staging buffer, assuming that it is at 0
+        srcImage = self.__swapChainImages[0]
+        region = VkBufferImageCopy(
+            bufferOffset=0,
+            bufferRowLength=0,
+            bufferImageHeight=0,
+            imageSubresource=VkImageSubresourceLayers(
+                aspectMask=VK_IMAGE_ASPECT_COLOR_BIT,
+                mipLevel=0,
+                baseArrayLayer=0,
+                layerCount=1
+            ),
+            imageOffset=VkOffset3D(0, 0, 0),
+            imageExtent=VkExtent3D(width, height, 1)
+        )
+
+        # Transition swapchain image layout for transfer
+        barrier = VkImageMemoryBarrier(
+            sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            oldLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            newLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,
+            dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,
+            image=srcImage,
+            subresourceRange=VkImageSubresourceRange(
+                aspectMask=VK_IMAGE_ASPECT_COLOR_BIT,
+                baseMipLevel=0,
+                levelCount=1,
+                baseArrayLayer=0,
+                layerCount=1
+            )
+        )
+
+        vkCmdPipelineBarrier(
+            cmdBuf,
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0,
+            0, None,
+            0, None,
+            1, [barrier]
+        )
+
+        # Copy image to buffer
+        vkCmdCopyImageToBuffer(cmdBuf, srcImage,
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            stagingBuffer, 1, [region]
+        )
+
+        # Transition back to present
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+        barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+        vkCmdPipelineBarrier(cmdBuf,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                             0, 0, None, 0, None, 1, [barrier])
+
+        # Submit and wait
+        vkEndCommandBuffer(cmdBuf)
+        vkQueueSubmit(self.__graphicsQueue, 1, [VkSubmitInfo(
+            sType=VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            commandBufferCount=1,
+            pCommandBuffers=[cmdBuf]
+        )], VK_NULL_HANDLE)
+        vkQueueWaitIdle(self.__graphicsQueue)
+
+        # Get the image data
+        data_ptr = vkMapMemory(self.__device, stagingBufferMemory, 0, image_size, 0)
+        img_np = np.frombuffer(data_ptr, dtype=np.uint8).copy()
+        vkUnmapMemory(self.__device, stagingBufferMemory)
+
+        # Cleanup
+        vkFreeCommandBuffers(self.__device, self.__commandPool, 1, [cmdBuf])
+        vkDestroyBuffer(self.__device, stagingBuffer, None)
+        vkFreeMemory(self.__device, stagingBufferMemory, None)
+
+        return img_np.reshape((height, width, 4))[..., [2, 1, 0]]  #bgra > rgb
+
     def loop(self, view, proj, w, h, f):
         while not glfw.window_should_close(self.__window):
             glfw.poll_events()
             self.draw(view, proj, w, h, f)
             self.__drawFrame()
             self.fps_counter.update()
+
