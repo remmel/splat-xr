@@ -5,7 +5,7 @@ import numpy as np
 from vulkan import *
 import glfw
 
-from utils import load_splat_file
+from utils import load_splat_file, FPSCounter
 
 validationLayers = ["VK_LAYER_KHRONOS_validation"]
 deviceExtensions = [VK_KHR_SWAPCHAIN_EXTENSION_NAME]
@@ -94,6 +94,8 @@ class SplatsRendererVkGeo(object):
         self.num_points = len(self.positions)
         self.vertex_buffer = None
         self.vertex_buffer_memory = None
+        self.index_buffer = None
+        self.index_buffer_memory = None
         self.uniform_buffer = None
         self.uniform_buffer_memory = None
         self.descriptor_pool = None
@@ -103,6 +105,8 @@ class SplatsRendererVkGeo(object):
 
         self.__initWindow()
         self.__initVulkan()
+
+        self.fps_counter = FPSCounter()
 
 
     def sort(self, viewProj):
@@ -115,13 +119,7 @@ class SplatsRendererVkGeo(object):
             indices = np.argsort(depths).astype(np.uint32)
 
         # indices = indices[::-1]
-
-        # TODO upload order into gpu instead later
-        self.positions = self.positions[indices]
-        self.scales = self.scales[indices]
-        self.rotations = self.rotations[indices]
-        self.colors = self.colors[indices]
-        self.__createVertexBuffer()
+        self.updateIndexBuffer(indices)
 
 
     def draw(self, view, proj, w, h, f):
@@ -129,9 +127,8 @@ class SplatsRendererVkGeo(object):
 
         self.view_proj_ubo['view'] = view
         self.view_proj_ubo['proj'] = proj
-        self.view_proj_ubo['width'] = w
-        self.view_proj_ubo['height'] = h
-        self.view_proj_ubo['focal'] = f
+        self.view_proj_ubo['viewport'] = [w, h]
+        self.view_proj_ubo['focal'] = [f, f]
 
         # Copy the data to the mapped memory
         data_ptr = vkMapMemory(self.__device, self.uniform_buffer_memory, 0, self.view_proj_ubo.itemsize, 0)
@@ -147,6 +144,11 @@ class SplatsRendererVkGeo(object):
             vkDestroyBuffer(self.__device, self.vertex_buffer, None)
         if self.vertex_buffer_memory:
             vkFreeMemory(self.__device, self.vertex_buffer_memory, None)
+
+        if self.index_buffer:
+            vkDestroyBuffer(self.__device, self.index_buffer, None)
+        if self.index_buffer_memory:
+            vkFreeMemory(self.__device, self.index_buffer_memory, None)
 
         if self.uniform_buffer:
             vkDestroyBuffer(self.__device, self.uniform_buffer, None)
@@ -227,6 +229,7 @@ class SplatsRendererVkGeo(object):
         self.__createFramebuffers()
         self.__createCommandPool()
         self.__createVertexBuffer()        # Point cloud vertex data
+        self.__createIndexBuffer()        # order/sorted indices
         self.__createUniformBuffer()         # For view/proj matrices
         self.__createDescriptorPool()
         self.__createDescriptorSets()
@@ -292,9 +295,15 @@ class SplatsRendererVkGeo(object):
     def __pickPhysicalDevice(self):
         devices = vkEnumeratePhysicalDevices(self.__instance)
 
-        for device in devices:
+        for i, device in enumerate(devices):
+            properties = vkGetPhysicalDeviceProperties(device)
+
+            if properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU: #try to use dedictated GPU instead of iGPU
+                continue
+
             if self.__isDeviceSuitable(device):
                 self.__physicalDevice = device
+                print(f"\nSelected GPU #{i}: {properties.deviceName}")
                 break
 
         if self.__physicalDevice is None:
@@ -464,11 +473,11 @@ class SplatsRendererVkGeo(object):
 
 
     def __createGraphicsPipeline(self):
-        dir = Path(__file__).resolve().parent / 'vk_shaders'
+        dir = Path(__file__).resolve().parent / 'vk_shaders' / 'spv'
 
-        vertShaderModule = self.__createShaderModule(dir / 'points_vert.spv')
-        geomShaderModule = self.__createShaderModule(dir / 'points_geom.spv')
-        fragShaderModule = self.__createShaderModule(dir / 'points_frag.spv')
+        vertShaderModule = self.__createShaderModule(dir / 'splats_vert.spv')
+        geomShaderModule = self.__createShaderModule(dir / 'splats_geom.spv')
+        fragShaderModule = self.__createShaderModule(dir / 'splats_frag.spv')
 
         vertShaderStageInfo = VkPipelineShaderStageCreateInfo(
             sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -584,12 +593,12 @@ class SplatsRendererVkGeo(object):
         colorBlendAttachment = VkPipelineColorBlendAttachmentState(
             colorWriteMask=VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
             blendEnable=True,
-            srcColorBlendFactor=VK_BLEND_FACTOR_SRC_ALPHA,
-            dstColorBlendFactor=VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+            srcColorBlendFactor=VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA,
+            dstColorBlendFactor=VK_BLEND_FACTOR_ONE,
             colorBlendOp=VK_BLEND_OP_ADD,
-            srcAlphaBlendFactor=VK_BLEND_FACTOR_ONE,
-            dstAlphaBlendFactor=VK_BLEND_FACTOR_ZERO,
-            alphaBlendOp=VK_BLEND_OP_ADD
+            srcAlphaBlendFactor=VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA,
+            dstAlphaBlendFactor=VK_BLEND_FACTOR_ONE,
+            alphaBlendOp=VK_BLEND_OP_ADD,
         )
 
         colorBlending = VkPipelineColorBlendStateCreateInfo(
@@ -690,13 +699,45 @@ class SplatsRendererVkGeo(object):
         vkDestroyBuffer(self.__device, stagingBuffer, None)
         vkFreeMemory(self.__device, stagingBufferMemory, None)
 
+    def __createIndexBuffer(self):
+        # Initial empty index buffer - will be updated later with sorted indices
+        bufferSize = 4 * self.num_points  # uint32 size * number of points
+
+        self.index_buffer, self.index_buffer_memory = self.__createBuffer(
+            bufferSize,
+            VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+        )
+
+    def updateIndexBuffer(self, indices):
+        """Update the index buffer with new sorted indices"""
+        bufferSize = indices.nbytes
+
+        # Create staging buffer
+        stagingBuffer, stagingBufferMemory = self.__createBuffer(
+            bufferSize,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        )
+
+        # Copy indices to staging buffer
+        data_ptr = vkMapMemory(self.__device, stagingBufferMemory, 0, bufferSize, 0)
+        ffi.memmove(data_ptr, indices.data, bufferSize)
+        vkUnmapMemory(self.__device, stagingBufferMemory)
+
+        # Copy from staging buffer to index buffer
+        self.__copyBuffer(stagingBuffer, self.index_buffer, bufferSize)
+
+        # Cleanup staging buffer
+        vkDestroyBuffer(self.__device, stagingBuffer, None)
+        vkFreeMemory(self.__device, stagingBufferMemory, None)
+
     def __createUniformBuffer(self):
         self.view_proj_ubo = np.zeros(1, dtype=[
             ('view', np.float32, (4, 4)),
             ('proj', np.float32, (4, 4)),
-            ('width', np.float32, (1)),
-            ('height', np.float32, (1)),
-            ('focal', np.float32, (1))
+            ('viewport', np.float32, (2,)),
+            ('focal', np.float32, (2,))
         ])
 
         bufferSize = self.view_proj_ubo.itemsize
@@ -776,7 +817,7 @@ class SplatsRendererVkGeo(object):
                 renderArea=[[0, 0], self.__swapChainExtent]
             )
 
-            clearColor = VkClearValue([[0.0, 0.0, 0.0, 1.0]])
+            clearColor = VkClearValue([[0.0, 0.0, 0.0, 0.0]])
             renderPassInfo.clearValueCount = 1
             renderPassInfo.pClearValues = ffi.addressof(clearColor)
 
@@ -786,12 +827,12 @@ class SplatsRendererVkGeo(object):
 
             # --- Bind Vertex Buffer ---
             vkCmdBindVertexBuffers(cmdBuffer, 0, 1, [self.vertex_buffer, ], [0, ])
+            vkCmdBindIndexBuffer(cmdBuffer, self.index_buffer, 0, VK_INDEX_TYPE_UINT32)
 
             # --- Bind Descriptor Set (UBO) ---
             vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, self.__pipelineLayout, 0, 1, self.descriptor_sets, 0, None)
 
-            # --- Draw Points ---
-            vkCmdDraw(cmdBuffer, self.num_points, 1, 0, 0)  # Draw all points
+            vkCmdDrawIndexed(cmdBuffer, self.num_points, 1, 0, 0, 0)  # Draw sorted points
 
             vkCmdEndRenderPass(cmdBuffer)
 
@@ -1026,3 +1067,4 @@ class SplatsRendererVkGeo(object):
             glfw.poll_events()
             self.draw(view, proj, w, h, f)
             self.__drawFrame()
+            self.fps_counter.update()
