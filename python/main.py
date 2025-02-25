@@ -74,8 +74,8 @@ def get_view_proj_matrix_antimatter():
 
 if __name__ == "__main__":
 
-    splatAxis = "../public/ds/axis.splat"
-    splatTrain = "../public/ds/train.splat" # https://huggingface.co/cakewalk/splat-data/resolve/main/train.splat
+    splatAxis = "../web/public/ds/axis.splat"
+    splatTrain = "../web/public/ds/train.splat" # https://huggingface.co/cakewalk/splat-data/resolve/main/train.splat
 
 
     w, h, f = 1000, 1000, 1000

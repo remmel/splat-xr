@@ -21,19 +21,11 @@ layout(binding = 0) uniform UniformBufferObject {
 } ubo;
 
 mat3 quat_to_mat3(vec4 q) {
-    float x = q.x, y = q.y, z = q.z, w = q.w;
+    float w = q.x, x = q.y, y = q.z, z = q.w;
     return mat3(
-        1.0 - 2.0 * (z * z + w * w),
-        2.0 * (y * z + x * w),
-        2.0 * (y * w - x * z),
-
-        2.0 * (y * z - x * w),
-        1.0 - 2.0 * (y * y + w * w),
-        2.0 * (z * w + x * y),
-
-        2.0 * (y * w + x * z),
-        2.0 * (z * w - x * y),
-        1.0 - 2.0 * (y * y + z * z)
+        1. - 2. * (y * y + z * z),  2. * (x * y + w * z),       2. * (x * z - w * y),
+        2. * (x * y - w * z),       1. - 2. * (x * x + z * z),  2. * (y * z + w * x),
+        2. * (x * z + w * y),       2. * (y * z - w * x),       1. - 2. * (x * x + y * y)
     );
 }
 
