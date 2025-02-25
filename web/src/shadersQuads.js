@@ -78,11 +78,11 @@ void main () {
 
     vCenter = vec2(pos2d) / pos2d.w; //[-1,1]
 
-    vPosition = aPosition;
-    
     #if ${useQuad}
+        float quadLen = 2.0;
+        vPosition = aPosition * quadLen; //aPosition.xy -1 or 1
         // to use with default rasterisation pipeline
-        gl_Position = vec4(vCenter + 4.0 * (aPosition.x * majorAxis + aPosition.y * minorAxis) / uViewport, 0.0, 1.0);
+        gl_Position = vec4(vCenter + 2.0 * quadLen * (aPosition.x * majorAxis + aPosition.y * minorAxis) / uViewport, 0.0, 1.0);
     #else
         // pos0 are [-1,1]
         vec2 axisSumPx = abs(majorAxis) + abs(minorAxis);
@@ -104,7 +104,7 @@ export const fragmentShaderSource = `
 precision highp float;
 
 in vec4 vColor;
-in vec2 vPosition; //[-1,1], but was before [-2,-2]
+in vec2 vPosition; //[-2,-2]
 in vec2 vCenter; //[-1, 1] window-relative
 in vec2 rectSize_px;
 in vec2 vMajorAxis;
@@ -123,7 +123,7 @@ vec2 ndcToPx(vec2 ndc, vec2 vp) {
 void main () {
     
 #if ${useQuad}
-    float A = dot(vPosition*2.0, vPosition*2.0);
+    float A = dot(vPosition, vPosition);
 #else
     vec2 centerPx = ndcToPx(vCenter, uViewport);
     vec2 delta_px = gl_FragCoord.xy - centerPx;
@@ -138,7 +138,7 @@ void main () {
     
     if (A > 4.0) discard;
     float B = exp(-A) * vColor.a;
-    if(B < 1.0/255.0) discard;
+//    if(B < 1.0/255.0) discard;
     fragColor = vec4(vColor.rgb * B, B);
 }
 `.trim();
