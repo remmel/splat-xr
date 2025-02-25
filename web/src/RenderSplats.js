@@ -172,7 +172,8 @@ export class RenderSplats {
 
         // Enable blending
         gl.enable(gl.BLEND)
-        gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.ONE)
+        gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.ONE) //antimatter - front to back
+        // gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA) //back to front - depth *= -1
 
         gl.useProgram(this.program)
         gl.bindVertexArray(this.vao)

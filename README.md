@@ -11,12 +11,14 @@ Implementations using:
 
 To run the js webgl viewer:
 ```shell
+cd web
 npm install
 npm run dev
 ```
 
 To run the python viewers:
 ```shell
+# conda remove -n splat-render --all
 cd python
 conda env create -f environment.yml
 conda activate splat-render
