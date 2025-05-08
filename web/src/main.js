@@ -1,6 +1,7 @@
 import { RenderSplats } from "./RenderSplats.js";
 import { RenderSplatsDebug } from "./RenderSplatsDebug.js";
 import { animateCarrouselMouvement, Fps, getProjectionMatrix, invert4, multiply4, rotate4 } from "./utils.js";
+import {Interactions} from "./Interactions.js";
 
 async function main() {
 
@@ -42,6 +43,16 @@ async function main() {
     await renderSplats.fetch(url)
     document.getElementById("spinner").style.display = "none"
 
+
+    view = [
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0.1, 3, 1
+    ]
+
+    let interactions = new Interactions(view, canvas)
+
     const onFrame = (now) => {
         const viewport = {width: w, height: h};
         let proj = getProjectionMatrix(fx, fy, w, h)
@@ -51,13 +62,6 @@ async function main() {
 
 //         const view = animateCarrouselMouvement(worldTransform)
 
-        view = [
-            1, 0, 0, 0,
-            0, 1, 0, 0,
-            0, 0, 1, 0,
-            0, 0.1, 3, 1
-        ]
-
         proj = [
             2, 0, 0, 0,
             0, -2, 0, 0,
@@ -65,7 +69,7 @@ async function main() {
             0, 0, -0.20020020020020018, 0
         ]
 
-        renderSplats.draw(view, viewport, proj)
+        renderSplats.draw(interactions.viewMatrix, viewport, proj)
 
         requestAnimationFrame(onFrame);
     };
