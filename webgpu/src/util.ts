@@ -47,7 +47,7 @@ export function quitIfLimitLessThan(
 export function quitIfWebGPUNotAvailable(
   adapter: GPUAdapter | null,
   device: GPUDevice | null
-): asserts device {
+): asserts device is GPUDevice {
   if (!device) {
     quitIfAdapterNotAvailable(adapter);
     fail('Unable to get a device for an unknown reason');

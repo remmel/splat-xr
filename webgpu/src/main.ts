@@ -1,4 +1,5 @@
 import { mat4, vec3 } from 'wgpu-matrix';
+import type {Mat4Arg} from "wgpu-matrix";
 
 import {
     cubeVertexArray,
@@ -16,7 +17,8 @@ const adapter = await navigator.gpu?.requestAdapter({
     featureLevel: 'compatibility',
 });
 
-const device = await adapter?.requestDevice();
+if(!adapter) throw new Error('adapter is null');
+const device = await adapter.requestDevice();
 quitIfWebGPUNotAvailable(adapter, device);
 
 const context = canvas.getContext('webgpu') as GPUCanvasContext;
@@ -25,106 +27,141 @@ const devicePixelRatio = window.devicePixelRatio;
 canvas.width = canvas.clientWidth * devicePixelRatio;
 canvas.height = canvas.clientHeight * devicePixelRatio;
 const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
+const depthFormat: GPUTextureFormat = 'depth24plus';
 
 context.configure({
     device,
     format: presentationFormat,
 });
 
-// Create a vertex buffer from the cube data.
-const verticesBuffer = device.createBuffer({
-    size: cubeVertexArray.byteLength,
-    usage: GPUBufferUsage.VERTEX,
-    mappedAtCreation: true,
-});
-new Float32Array(verticesBuffer.getMappedRange()).set(cubeVertexArray);
-verticesBuffer.unmap();
+const UNIFORM_BUFFER_SIZE = 4 * 16; // 4x4 matrix, bytes
 
-const shaderModule = device.createShaderModule({
-    code: shadersWGSL,
-});
+// RenderCube class
+class RenderCube {
+    private pipeline: GPURenderPipeline;
+    private vertexBuffer: GPUBuffer;
+    private vertexCount: number;
 
+    private uniformBuffer: GPUBuffer;
+    private uniformBindGroup: GPUBindGroup;
+    private modelMatrix = mat4.identity();
+    private mvpMatrix = mat4.create(); // Stores the final MVP for this cube
 
-const pipeline = device.createRenderPipeline({
-    layout: 'auto',
-    vertex: {
-        module: shaderModule,
-        entryPoint: 'vertex_main',
-        buffers: [
-            {
-                arrayStride: cubeVertexSize,
-                attributes: [
+    constructor(
+        device: GPUDevice,
+        presentationFormat: GPUTextureFormat,
+        depthFormat: GPUTextureFormat
+    ) {
+        this.vertexCount = cubeVertexCount;
+
+        this.vertexBuffer = device.createBuffer({
+            size: cubeVertexArray.byteLength,
+            usage: GPUBufferUsage.VERTEX,
+            mappedAtCreation: true,
+        });
+        new Float32Array(this.vertexBuffer.getMappedRange()).set(cubeVertexArray);
+        this.vertexBuffer.unmap();
+
+        this.uniformBuffer = device.createBuffer({
+            size: UNIFORM_BUFFER_SIZE,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+
+        const uniformGroupLayout = device.createBindGroupLayout({
+            entries: [{
+                binding: 0,
+                visibility: GPUShaderStage.VERTEX,
+                buffer: {type: 'uniform'},
+            },],
+        });
+
+        this.uniformBindGroup = device.createBindGroup({
+            layout: uniformGroupLayout,
+            entries: [{
+                binding: 0,
+                resource: {buffer: this.uniformBuffer},
+            },],
+        });
+
+        const shaderModule = device.createShaderModule({
+            code: shadersWGSL,
+        });
+
+        this.pipeline = device.createRenderPipeline({
+            layout: device.createPipelineLayout({ bindGroupLayouts: [uniformGroupLayout] }),
+            vertex: {
+                module: shaderModule,
+                entryPoint: 'vertex_main',
+                buffers: [
                     {
-                        // position
-                        shaderLocation: 0,
-                        offset: cubePositionOffset,
-                        format: 'float32x4',
-                    },
-                    {
-                        // color
-                        shaderLocation: 1,
-                        offset: cubeColorOffset,
-                        format: 'float32x4',
+                        arrayStride: cubeVertexSize,
+                        attributes: [
+                            { shaderLocation: 0, offset: cubePositionOffset, format: 'float32x4' }, // position
+                            { shaderLocation: 1, offset: cubeColorOffset, format: 'float32x4' }, // color
+                        ],
                     },
                 ],
             },
-        ],
-    },
-    fragment: {
-        module: shaderModule,
-        entryPoint: 'fragment_main',
-        targets: [
-            {
-                format: presentationFormat,
+            fragment: {
+                module: shaderModule,
+                entryPoint: 'fragment_main',
+                targets: [{ format: presentationFormat }],
             },
-        ],
-    },
-    primitive: {
-        topology: 'point-list',
-    },
+            primitive: {
+                topology: 'point-list',
+            },
+            depthStencil: {
+                depthWriteEnabled: true,
+                depthCompare: 'less',
+                format: depthFormat,
+            },
+        });
+    }
 
-    // Enable depth testing so that the fragment closest to the camera
-    // is rendered in front.
-    depthStencil: {
-        depthWriteEnabled: true,
-        depthCompare: 'less',
-        format: 'depth24plus',
-    },
-});
+    public update(now: number, projectionMatrix: Mat4Arg, cameraViewMatrix: Mat4Arg, device: GPUDevice): void {
+        // Model transform (rotation specific to the cube)
+        mat4.identity(this.modelMatrix);
+        // Apply cube-specific transformations, e.g., rotation around Y axis and then X axis based on time
+        mat4.rotate(this.modelMatrix, vec3.fromValues(Math.sin(now), Math.cos(now), 0), 1, this.modelMatrix);
+
+
+        // Calculate ModelView matrix: V_camera * M_model
+        const modelViewMatrix = mat4.create();
+        mat4.multiply(cameraViewMatrix, this.modelMatrix, modelViewMatrix);
+
+        // Calculate MVP: P * (V_camera * M_model)
+        mat4.multiply(projectionMatrix, modelViewMatrix, this.mvpMatrix);
+
+        device.queue.writeBuffer(
+            this.uniformBuffer,
+            0,
+            this.mvpMatrix.buffer,
+            this.mvpMatrix.byteOffset,
+            this.mvpMatrix.byteLength
+        );
+    }
+
+    public draw(passEncoder: GPURenderPassEncoder): void {
+        passEncoder.setPipeline(this.pipeline);
+        passEncoder.setBindGroup(0, this.uniformBindGroup);
+        passEncoder.setVertexBuffer(0, this.vertexBuffer);
+        passEncoder.draw(this.vertexCount);
+    }
+}
 
 const depthTexture = device.createTexture({
     size: [canvas.width, canvas.height],
-    format: 'depth24plus',
+    format: depthFormat,
     usage: GPUTextureUsage.RENDER_ATTACHMENT,
 });
 
-const uniformBufferSize = 4 * 16; // 4x4 matrix
-const uniformBuffer = device.createBuffer({
-    size: uniformBufferSize,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-});
-
-const uniformBindGroup = device.createBindGroup({
-    layout: pipeline.getBindGroupLayout(0),
-    entries: [
-        {
-            binding: 0,
-            resource: {
-                buffer: uniformBuffer,
-            },
-        },
-    ],
-});
-
 const renderPassDescriptor: GPURenderPassDescriptor = {
-    colorAttachments: [
-        {
-
-            clearValue: [0.0, 0.0, 0.0, 1.0],
-            loadOp: 'clear',
-            storeOp: 'store',
-        },
-    ],
+    colorAttachments: [{
+        view: undefined, // Will be set in frame()
+        clearValue: [0.0, 0.0, 0.0, 1.0],
+        loadOp: 'clear',
+        storeOp: 'store',
+    },],
     depthStencilAttachment: {
         view: depthTexture.createView(),
         depthClearValue: 1.0,
@@ -133,45 +170,31 @@ const renderPassDescriptor: GPURenderPassDescriptor = {
     },
 };
 
+const renderCube = new RenderCube(device, presentationFormat, depthFormat);
+
 const aspect = canvas.width / canvas.height;
 const projectionMatrix = mat4.perspective((2 * Math.PI) / 5, aspect, 1, 100.0);
-const modelViewProjectionMatrix = mat4.create();
-
-function getTransformationMatrix() {
-    const viewMatrix = mat4.identity();
-    mat4.translate(viewMatrix, vec3.fromValues(0, 0, -4), viewMatrix);
-    const now = Date.now() / 1000;
-    mat4.rotate(
-        viewMatrix,
-        vec3.fromValues(Math.sin(now), Math.cos(now), 0),
-        1,
-        viewMatrix
-    );
-
-    mat4.multiply(projectionMatrix, viewMatrix, modelViewProjectionMatrix);
-
-    return modelViewProjectionMatrix;
-}
 
 function frame() {
-    const transformationMatrix = getTransformationMatrix();
-    device.queue.writeBuffer(
-        uniformBuffer,
-        0,
-        transformationMatrix.buffer,
-        transformationMatrix.byteOffset,
-        transformationMatrix.byteLength
-    );
-    renderPassDescriptor.colorAttachments[0].view = context
+    const now = Date.now() / 1000;
+
+    // Camera view matrix
+    const cameraViewMatrix = mat4.identity();
+    mat4.translate(cameraViewMatrix, vec3.fromValues(0, 0, -4), cameraViewMatrix); // Move camera back
+
+    // Update the cube's state and uniforms
+    renderCube.update(now, projectionMatrix, cameraViewMatrix, device);
+
+    const colorAttachment = renderPassDescriptor.colorAttachments[0] as GPURenderPassColorAttachment;
+    colorAttachment.view = context
         .getCurrentTexture()
         .createView();
 
     const commandEncoder = device.createCommandEncoder();
     const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
-    passEncoder.setPipeline(pipeline);
-    passEncoder.setBindGroup(0, uniformBindGroup);
-    passEncoder.setVertexBuffer(0, verticesBuffer);
-    passEncoder.draw(cubeVertexCount);
+
+    renderCube.draw(passEncoder);
+
     passEncoder.end();
     device.queue.submit([commandEncoder.finish()]);
 
