@@ -3,10 +3,10 @@ import { mat4, vec3 } from 'wgpu-matrix';
 import {
     cubeVertexArray,
     cubeVertexSize,
-    cubeUVOffset,
     cubePositionOffset,
     cubeVertexCount,
-} from './cube'
+    cubeColorOffset,
+} from './cube';
 
 import shadersWGSL from './shaders.wgsl?raw';
 import { quitIfWebGPUNotAvailable } from './util';
@@ -61,10 +61,10 @@ const pipeline = device.createRenderPipeline({
                         format: 'float32x4',
                     },
                     {
-                        // uv
+                        // color
                         shaderLocation: 1,
-                        offset: cubeUVOffset,
-                        format: 'float32x2',
+                        offset: cubeColorOffset,
+                        format: 'float32x4',
                     },
                 ],
             },
@@ -80,12 +80,7 @@ const pipeline = device.createRenderPipeline({
         ],
     },
     primitive: {
-        topology: 'triangle-list',
-
-        // Backface culling since the cube is solid piece of geometry.
-        // Faces pointing away from the camera will be occluded by faces
-        // pointing toward the camera.
-        cullMode: 'back',
+        topology: 'point-list',
     },
 
     // Enable depth testing so that the fragment closest to the camera
@@ -124,16 +119,14 @@ const uniformBindGroup = device.createBindGroup({
 const renderPassDescriptor: GPURenderPassDescriptor = {
     colorAttachments: [
         {
-            view: undefined, // Assigned later
 
-            clearValue: [0.5, 0.5, 0.5, 1.0],
+            clearValue: [0.0, 0.0, 0.0, 1.0],
             loadOp: 'clear',
             storeOp: 'store',
         },
     ],
     depthStencilAttachment: {
         view: depthTexture.createView(),
-
         depthClearValue: 1.0,
         depthLoadOp: 'clear',
         depthStoreOp: 'store',
