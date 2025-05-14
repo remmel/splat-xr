@@ -8,8 +8,7 @@ import {
     cubeVertexCount,
 } from './cube'
 
-import basicVertWGSL from './basic.vert.wgsl?raw';
-import vertexPositionColorWGSL from './vertexPositionColor.frag.wgsl?raw';
+import shadersWGSL from './shaders.wgsl?raw';
 import { quitIfWebGPUNotAvailable } from './util';
 
 const canvas = document.querySelector('canvas') as HTMLCanvasElement;
@@ -41,12 +40,16 @@ const verticesBuffer = device.createBuffer({
 new Float32Array(verticesBuffer.getMappedRange()).set(cubeVertexArray);
 verticesBuffer.unmap();
 
+const shaderModule = device.createShaderModule({
+    code: shadersWGSL,
+});
+
+
 const pipeline = device.createRenderPipeline({
     layout: 'auto',
     vertex: {
-        module: device.createShaderModule({
-            code: basicVertWGSL,
-        }),
+        module: shaderModule,
+        entryPoint: 'vertex_main',
         buffers: [
             {
                 arrayStride: cubeVertexSize,
@@ -68,9 +71,8 @@ const pipeline = device.createRenderPipeline({
         ],
     },
     fragment: {
-        module: device.createShaderModule({
-            code: vertexPositionColorWGSL,
-        }),
+        module: shaderModule,
+        entryPoint: 'fragment_main',
         targets: [
             {
                 format: presentationFormat,
