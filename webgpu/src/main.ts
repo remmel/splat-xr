@@ -44,7 +44,6 @@ class RenderCube {
 
     private uniformBuffer: GPUBuffer;
     private uniformBindGroup: GPUBindGroup;
-    private modelMatrix = mat4.identity();
     private mvpMatrix = mat4.create(); // Stores the final MVP for this cube
 
     constructor(
@@ -92,15 +91,13 @@ class RenderCube {
             vertex: {
                 module: shaderModule,
                 entryPoint: 'vertex_main',
-                buffers: [
-                    {
-                        arrayStride: cubeVertexSize,
-                        attributes: [
-                            { shaderLocation: 0, offset: cubePositionOffset, format: 'float32x4' }, // position
-                            { shaderLocation: 1, offset: cubeColorOffset, format: 'float32x4' }, // color
-                        ],
-                    },
-                ],
+                buffers: [{
+                    arrayStride: cubeVertexSize,
+                    attributes: [
+                        {shaderLocation: 0, offset: cubePositionOffset, format: 'float32x4'}, // position
+                        {shaderLocation: 1, offset: cubeColorOffset, format: 'float32x4'}, // color
+                    ],
+                }],
             },
             fragment: {
                 module: shaderModule,
@@ -117,20 +114,11 @@ class RenderCube {
             },
         });
     }
-
-    public update(now: number, projectionMatrix: Mat4Arg, cameraViewMatrix: Mat4Arg, device: GPUDevice): void {
-        // Model transform (rotation specific to the cube)
-        mat4.identity(this.modelMatrix);
-        // Apply cube-specific transformations, e.g., rotation around Y axis and then X axis based on time
-        mat4.rotate(this.modelMatrix, vec3.fromValues(Math.sin(now), Math.cos(now), 0), 1, this.modelMatrix);
-
-
-        // Calculate ModelView matrix: V_camera * M_model
+    public draw(passEncoder: GPURenderPassEncoder, device: GPUDevice, model: Mat4Arg, view: Mat4Arg, proj: Mat4Arg): void {
+        // update uniform
         const modelViewMatrix = mat4.create();
-        mat4.multiply(cameraViewMatrix, this.modelMatrix, modelViewMatrix);
-
-        // Calculate MVP: P * (V_camera * M_model)
-        mat4.multiply(projectionMatrix, modelViewMatrix, this.mvpMatrix);
+        mat4.multiply(view, model, modelViewMatrix);
+        mat4.multiply(proj, modelViewMatrix, this.mvpMatrix);
 
         device.queue.writeBuffer(
             this.uniformBuffer,
@@ -139,9 +127,8 @@ class RenderCube {
             this.mvpMatrix.byteOffset,
             this.mvpMatrix.byteLength
         );
-    }
 
-    public draw(passEncoder: GPURenderPassEncoder): void {
+        //draw
         passEncoder.setPipeline(this.pipeline);
         passEncoder.setBindGroup(0, this.uniformBindGroup);
         passEncoder.setVertexBuffer(0, this.vertexBuffer);
@@ -173,17 +160,21 @@ const renderPassDescriptor: GPURenderPassDescriptor = {
 const renderCube = new RenderCube(device, presentationFormat, depthFormat);
 
 const aspect = canvas.width / canvas.height;
-const projectionMatrix = mat4.perspective((2 * Math.PI) / 5, aspect, 1, 100.0);
+const proj = mat4.perspective((2 * Math.PI) / 5, aspect, 1, 100.0);
+
+
+let modelCube = mat4.identity();
+function updateAnimateCube(now: number, model: Mat4Arg) {
+    mat4.identity(model);
+    mat4.rotate(model, vec3.fromValues(Math.sin(now), Math.cos(now), 0), 1, model);
+}
+
+const view = mat4.identity();
+mat4.translate(view, vec3.fromValues(0, 0, -4), view); // Move camera back
 
 function frame() {
     const now = Date.now() / 1000;
-
-    // Camera view matrix
-    const cameraViewMatrix = mat4.identity();
-    mat4.translate(cameraViewMatrix, vec3.fromValues(0, 0, -4), cameraViewMatrix); // Move camera back
-
-    // Update the cube's state and uniforms
-    renderCube.update(now, projectionMatrix, cameraViewMatrix, device);
+    updateAnimateCube(now, modelCube)
 
     const colorAttachment = renderPassDescriptor.colorAttachments[0] as GPURenderPassColorAttachment;
     colorAttachment.view = context
@@ -192,9 +183,7 @@ function frame() {
 
     const commandEncoder = device.createCommandEncoder();
     const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
-
-    renderCube.draw(passEncoder);
-
+    renderCube.draw(passEncoder, device, modelCube, view, proj);
     passEncoder.end();
     device.queue.submit([commandEncoder.finish()]);
 
