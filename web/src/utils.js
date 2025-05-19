@@ -278,3 +278,15 @@ export class Fps {
         }
     }
 }
+
+export function logGpuInfo(gl) {
+    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+    const info = {
+        vendor: gl.getParameter(gl.VENDOR),
+        renderer: gl.getParameter(gl.RENDERER),
+        version: gl.getParameter(gl.VERSION),
+        unmaskedVendor: gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL),
+        unmaskedRenderer: gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL),
+    }
+    console.log(info)
+}
