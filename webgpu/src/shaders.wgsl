@@ -6,34 +6,19 @@ struct Uniforms {
 }
 @binding(0) @group(0) var<uniform> u : Uniforms;
 
+struct SplatSSBO {
+    center: vec3f,
+    _padding0: f32,
+    cov3d_packed: vec3u,
+    color_packed: u32,
+}
+@binding(1) @group(0) var<storage> splats: array<SplatSSBO>;
+@binding(2) @group(0) var<storage> splatOrder: array<u32>;
+
 struct VertexOutput {
     @builtin(position) position : vec4f,
     @location(0) vPosition: vec2f, //position relative to the fragment
     @location(1) vColor: vec4f,
-}
-
-fn quat_to_mat3(q: vec4f) -> mat3x3f {
-    let w = q.x;
-    let x = q.y;
-    let y = q.z;
-    let z = q.w;
-    return mat3x3f(
-        1. - 2. * (y * y + z * z),  2. * (x * y + w * z),       2. * (x * z - w * y),
-        2. * (x * y - w * z),       1. - 2. * (x * x + z * z),  2. * (y * z + w * x),
-        2. * (x * z + w * y),       2. * (y * z - w * x),       1. - 2. * (x * x + y * y)
-    );
-}
-
-fn computeCov3D(quaternion: vec4f, scale: vec3f) -> mat3x3f {
-    let _R = quat_to_mat3(quaternion);
-    let _S = mat3x3f(
-    scale.x, 0.0, 0.0,
-    0.0, scale.y, 0.0,
-    0.0, 0.0, scale.z
-    );
-    let _M = _R * _S;
-    let cov3d = _M * transpose(_M);
-    return cov3d;
 }
 
 // Quad vertex positions for a triangle strip
@@ -45,32 +30,44 @@ var<private> quadPositions: array<vec2f, 4> = array<vec2f, 4>(
     vec2f(1., 1.)
 );
 
+struct Splat {
+    center: vec4f,
+    cov3d: mat3x3f,
+    color: vec4f,
+}
+
+fn unpackSplatSSBO(s:SplatSSBO) -> Splat {
+    let u1 = unpack2x16float(s.cov3d_packed.x);
+    let u2 = unpack2x16float(s.cov3d_packed.y);
+    let u3 = unpack2x16float(s.cov3d_packed.z);
+    let Vrk = mat3x3f(u1.x, u1.y, u2.x, u1.y, u2.y, u3.x, u2.x, u3.x, u3.y);
+    return Splat(
+        vec4f(s.center, 1.0),
+        mat3x3f(u1.x, u1.y, u2.x, u1.y, u2.y, u3.x, u2.x, u3.x, u3.y),
+        unpack4x8unorm(s.color_packed)
+    );
+}
+
 @vertex
 fn vertex_main(
-    @location(0) center : vec4f, //splat position, do not confuse with position of the vertex
-    @location(1) scale: vec3f,
-    @location(2) rotation: vec3u,
-    @location(3) color : vec4f,
     @builtin(vertex_index) vertexIndex: u32, //[0-3]
     @builtin(instance_index) instanceIndex: u32
 ) -> VertexOutput {
     var output : VertexOutput;
     output.position = vec4(0.0, 0.0, 2.0, 1.0);
 
+    let splatIdx = splatOrder[instanceIndex];
+    let s = unpackSplatSSBO(splats[splatIdx]);
+
     let aPosition = quadPositions[vertexIndex];
 
     let mvp = u.proj * u.view;
 
-    let cam:vec4f = u.view * center;
+    let cam:vec4f = u.view * s.center;
     let pos2d:vec4f = u.proj * cam;
     let clip = 1.2 * pos2d.w;
     if (pos2d.z < -clip || pos2d.x < -clip || pos2d.x > clip || pos2d.y < -clip || pos2d.y > clip) { return output; }
 
-    //let Vrk = 4.0 * computeCov3D(rotation, scale);
-    let u1 = unpack2x16float(rotation.x);
-    let u2 = unpack2x16float(rotation.y);
-    let u3 = unpack2x16float(rotation.z);
-    let Vrk = mat3x3f(u1.x, u1.y, u2.x, u1.y, u2.y, u3.x, u2.x, u3.x, u3.y);
     let _J = mat3x3f(
         u.focal.x / cam.z, 0., -(u.focal.x * cam.x) / (cam.z * cam.z),
         0., -u.focal.y / cam.z, (u.focal.y * cam.y) / (cam.z * cam.z),
@@ -79,7 +76,7 @@ fn vertex_main(
 
     let view3x3f = mat3x3f(u.view[0].xyz, u.view[1].xyz, u.view[2].xyz);
     let _T = transpose(view3x3f) * _J;
-    let cov2d_mat = transpose(_T) * Vrk * _T;
+    let cov2d_mat = transpose(_T) * s.cov3d * _T;
     let cov2d = vec3(cov2d_mat[0][0], cov2d_mat[1][1], cov2d_mat[0][1]);
 
     let mid = (cov2d.x + cov2d.y) / 2.0;
@@ -99,7 +96,7 @@ fn vertex_main(
     output.position = vec4(vCenter.xy + 2.0 * quadLen * (aPosition.x * majorAxis + aPosition.y * minorAxis) / u.viewport, 0.0, 1.0);
 //    output.position = vec4f(pos2d.xy + aPosition * pos2d.w * 50.0 / u.viewport, pos2d.z, pos2d.w);
     output.vPosition = aPosition * quadLen;
-    output.vColor = color;
+    output.vColor = s.color;
     return output;
 }
 

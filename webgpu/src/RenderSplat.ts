@@ -4,16 +4,14 @@ import shadersWGSL from './shaders.wgsl?raw';
 
 export class RenderSplat {
     private pipeline: GPURenderPipeline;
-    private vertexBuffer: GPUBuffer | null = null;
-    private sortedVertexBuffer: GPUBuffer | null = null;
-    // private indexBuffer: GPUBuffer | null = null;
+    private splatStorageBuffer: GPUBuffer | null = null;
+    private splatOrderBuffer: GPUBuffer | null = null; // New buffer for splat order
     private count : number = 0; //number of splats (NOT number of vertices)
     private lastCount: number = 0;
     private bufferGpu_f32: Float32Array = new Float32Array(0);
     private bufferGpuOffset = { // offsets in bytes
-        'center': 0, //f32*3
-        'scale': 4 * 3,//u8*4
-        'cov2d': 4 * 4, //f32*3
+        'center': 0, //f32*3 + f32*1 (pad)
+        'cov3d': 4 * 4, //f32*3
         'color': 4 * 7, //u8*4
         'stride': 4 * 8
     }
@@ -27,7 +25,8 @@ export class RenderSplat {
     }
 
     private uniformBuffer: GPUBuffer;
-    private uniformBindGroup: GPUBindGroup;
+    private bindGroup: GPUBindGroup | null = null;
+    private bindGroupLayout: GPUBindGroupLayout;
     private uniformData = new Float32Array(this.uniformOffset.length);
     private device: GPUDevice;
 
@@ -45,51 +44,32 @@ export class RenderSplat {
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
-        const uniformGroupLayout = device.createBindGroupLayout({
+        this.bindGroupLayout = device.createBindGroupLayout({
             entries: [{
                 binding: 0,
                 visibility: GPUShaderStage.VERTEX,
                 buffer: {type: 'uniform'},
-            },],
-        });
-
-        this.uniformBindGroup = device.createBindGroup({
-            layout: uniformGroupLayout,
-            entries: [{
-                binding: 0,
-                resource: {buffer: this.uniformBuffer},
-            },],
+            }, {
+                binding: 1,
+                visibility: GPUShaderStage.VERTEX,
+                buffer: {type: 'read-only-storage'},
+            }, {
+                binding: 2,
+                visibility: GPUShaderStage.VERTEX,
+                buffer: {type: 'read-only-storage'},
+            }],
         });
 
         const shaderModule = device.createShaderModule({
             code: shadersWGSL,
         });
 
-        // Create static index buffer for quad vertices (triangle strip: 0,1,2,3)
-        // const quadIndices = new Uint32Array([0, 1, 2, 3]);
-        // this.indexBuffer = device.createBuffer({
-        //     size: quadIndices.byteLength,
-        //     usage: GPUBufferUsage.INDEX,
-        //     mappedAtCreation: true,
-        // });
-        // new Uint32Array(this.indexBuffer.getMappedRange()).set(quadIndices);
-        // this.indexBuffer.unmap();
-
         this.pipeline = device.createRenderPipeline({
-            layout: device.createPipelineLayout({ bindGroupLayouts: [uniformGroupLayout] }),
+            layout: device.createPipelineLayout({ bindGroupLayouts: [this.bindGroupLayout] }),
             vertex: {
                 module: shaderModule,
                 entryPoint: 'vertex_main',
-                buffers: [{
-                    arrayStride: this.bufferGpuOffset.stride,
-                    attributes: [
-                        {shaderLocation: 0, offset: this.bufferGpuOffset.center, format: 'float32x3'},
-                        {shaderLocation: 1, offset: this.bufferGpuOffset.scale, format: 'unorm8x4'},
-                        {shaderLocation: 2, offset: this.bufferGpuOffset.cov2d, format: 'uint32x3'},
-                        {shaderLocation: 3, offset: this.bufferGpuOffset.color, format: 'unorm8x4'},
-                    ],
-                    stepMode: 'instance', // Use instance mode to repeat vertex data for each quad
-                }],
+                buffers: [], // No vertex buffers, data comes from storage buffer
             },
             fragment: {
                 module: shaderModule,
@@ -137,6 +117,31 @@ export class RenderSplat {
         console.log('vertexCount', count)
         this.bufferGpu_f32 = new Float32Array(8 * count);
         const bufferGpu_u32 = new Uint32Array(this.bufferGpu_f32.buffer)
+
+        this.splatStorageBuffer = this.device.createBuffer({
+            size: count * this.bufferGpuOffset.stride,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        });
+
+        this.splatOrderBuffer = this.device.createBuffer({
+            size: count * 4, // Uint32Array, 4B
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        });
+
+        this.bindGroup = this.device.createBindGroup({
+            layout: this.bindGroupLayout,
+            entries: [{
+                binding: 0,
+                resource: {buffer: this.uniformBuffer},
+            }, {
+                binding: 1,
+                resource: {buffer: this.splatStorageBuffer},
+            }, {
+                binding: 2,
+                resource: {buffer: this.splatOrderBuffer},
+            }],
+        });
+
         for (let i = 0; i < count; i++) {
             // center : x, y, z - Float32 - 3x4Bytes <=> 3x32b
             this.bufferGpu_f32[8 * i + 0] = bufferFile_f32[8 * i + 0];
@@ -191,18 +196,11 @@ export class RenderSplat {
             bufferGpu_u32[8 * i + 6] = packHalf2x16(c * sigma[4], c * sigma[5])
         }
 
-        this.vertexBuffer = this.device.createBuffer({
-            size: this.bufferGpu_f32.byteLength,
-            usage: GPUBufferUsage.VERTEX,
-            mappedAtCreation: true,
-        });
-        new Float32Array(this.vertexBuffer.getMappedRange()).set(this.bufferGpu_f32);
-        this.vertexBuffer.unmap();
-
-        this.sortedVertexBuffer = this.device.createBuffer({
-            size: this.bufferGpu_f32.byteLength,
-            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-        });
+        this.device.queue.writeBuffer(this.splatStorageBuffer, 0, this.bufferGpu_f32);
+        // Initialize splatOrderBuffer with a default order (0, 1, 2, ...)
+        const initialSplatOrder = new Uint32Array(count);
+        for (let i = 0; i < count; i++) initialSplatOrder[i] = i;
+        this.device.queue.writeBuffer(this.splatOrderBuffer, 0, initialSplatOrder);
 
         this.count = count
     }
@@ -228,9 +226,7 @@ export class RenderSplat {
         this.runSort(mvp) // updates the sorted vertex buffer
 
         passEncoder.setPipeline(this.pipeline);
-        passEncoder.setBindGroup(0, this.uniformBindGroup);
-        passEncoder.setVertexBuffer(0, this.sortedVertexBuffer);
-        // passEncoder.setIndexBuffer(this.indexBuffer, 'uint32');
+        passEncoder.setBindGroup(0, this.bindGroup);
         passEncoder.draw(4, this.count);
     }
 
@@ -246,18 +242,7 @@ export class RenderSplat {
 
         const splatOrder = this.sort(x, y, z);
 
-        // TODO Provide sorted ids instead of sorted splats
-        const sortedData = new Float32Array(8 * this.count);
-        for (let i = 0; i < this.count; i++) {
-            const srcIndex = splatOrder[i];
-            const srcOffset = srcIndex * 8;
-            const dstOffset = i * 8;
-            for (let j = 0; j < 8; j++) {
-                sortedData[dstOffset + j] = this.bufferGpu_f32[srcOffset + j];
-            }
-        }
-
-        this.device.queue.writeBuffer(this.sortedVertexBuffer, 0, sortedData);
+        this.device.queue.writeBuffer(this.splatOrderBuffer!, 0, splatOrder);
 
         this.lastProj = mvp;
         this.lastCount = this.count;
