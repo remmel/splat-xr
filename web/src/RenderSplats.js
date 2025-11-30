@@ -21,6 +21,7 @@ export class RenderSplats {
         this.uViewportLoc = gl.getUniformLocation(program, "uViewport")
         this.uFocalLoc = gl.getUniformLocation(program, "uFocal")
         this.uViewLoc = gl.getUniformLocation(program, "uView")
+        this.uQuadLenLoc = gl.getUniformLocation(program, "uQuadLen")
 
         // positions
         // const triangleVertices = new Float32Array([-2, -2, 2, -2, 2, 2, -2, 2])
@@ -165,7 +166,7 @@ export class RenderSplats {
         gl.bufferData(gl.ARRAY_BUFFER, depthIndex, gl.DYNAMIC_DRAW)
     }
 
-    draw(view, viewport, proj) {
+    draw(view, viewport, proj, quadLen = 2.0) {
         const gl = this.gl
 
         gl.disable(gl.DEPTH_TEST)
@@ -184,6 +185,7 @@ export class RenderSplats {
             (proj[0] * viewport.width) / 2,
             -(proj[5] * viewport.height) / 2
         ]))
+        gl.uniform1f(this.uQuadLenLoc, quadLen)
 
         const viewProj = multiply4(proj, view)
         this.runSort(viewProj)

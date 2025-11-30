@@ -12,6 +12,7 @@ uniform highp usampler2D uTexture;
 uniform mat4 uProj, uView;
 uniform vec2 uFocal; //focal in pixel eg [1150, 1150]
 uniform vec2 uViewport; //resolution in pixel eg [1920, 1080]
+uniform float uQuadLen;
 
 in vec2 aPosition;
 in int aIndex;
@@ -76,13 +77,14 @@ void main () {
         (cov.w >> 24) & 0xffu
     ) / 255.0;
 
-    vCenter = vec2(pos2d) / pos2d.w; //[-1,1]
+    vCenter = pos2d.xy / pos2d.w; //[-1,1]
 
     #if ${useQuad}
-        float quadLen = 2.0;
+        //float quadLen = 2.0;
+        float quadLen = uQuadLen;
         vPosition = aPosition * quadLen; //aPosition.xy -1 or 1
         // to use with default rasterisation pipeline
-        gl_Position = vec4(vCenter + 2.0 * quadLen * (aPosition.x * majorAxis + aPosition.y * minorAxis) / uViewport, 0.0, 1.0);
+        gl_Position = vec4(vCenter + 2.0 * (vPosition.x * majorAxis + vPosition.y * minorAxis) / uViewport, 0.0, 1.0);
     #else
         // pos0 are [-1,1]
         vec2 axisSumPx = abs(majorAxis) + abs(minorAxis);

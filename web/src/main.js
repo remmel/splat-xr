@@ -2,8 +2,18 @@ import { RenderSplats } from "./RenderSplats.js";
 import { RenderSplatsDebug } from "./RenderSplatsDebug.js";
 import { animateCarrouselMouvement, Fps, getProjectionMatrix, invert4, multiply4, rotate4 } from "./utils.js";
 import {Interactions} from "./Interactions.js";
+import GUI from 'lil-gui';
 
 async function main() {
+
+
+    const gui = new GUI();
+
+    const config = {
+        quadLen: 1.6
+    };
+
+    gui.add( config, 'quadLen', 0, 3 );
 
     let worldTransform = [
         1, 0, 0, 0,
@@ -69,7 +79,7 @@ async function main() {
             0, 0, -0.20020020020020018, 0
         ]
 
-        renderSplats.draw(interactions.viewMatrix, viewport, proj)
+        renderSplats.draw(interactions.viewMatrix, viewport, proj, config.quadLen)
 
         requestAnimationFrame(onFrame);
     };
