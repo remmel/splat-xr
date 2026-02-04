@@ -6,11 +6,12 @@ export class RenderSplats {
 
     vertexCount = 0
     lastVertexCount = 0
+    isFront2Back = true
 
     /** @var ArrayBuffer contains the splats data fetched */
     splatsBuffer = null
-    constructor(gl) {
-
+    constructor(gl, isFront2Back=true) {
+        this.isFront2Back = isFront2Back
         this.vao = gl.createVertexArray()
         gl.bindVertexArray(this.vao)
 
@@ -53,9 +54,10 @@ export class RenderSplats {
             mode: "cors", // no-cors, *cors, same-origin
             credentials: "omit", // include, *same-origin, omit
         })
-        console.log(req)
-        if (req.status != 200)
+        if (req.status != 200) {
+            alert("missing file: "+req.url)
             throw new Error(req.status + " Unable to load " + req.url)
+        }
 
         const splatData = new Uint8Array(await req.arrayBuffer())
         // 6*4 + 4 + 4 = 8*4
@@ -173,8 +175,10 @@ export class RenderSplats {
 
         // Enable blending
         gl.enable(gl.BLEND)
-        gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.ONE) //antimatter - front to back
-        // gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA) //back to front - depth *= -1
+        if(this.isFront2Back)
+            gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.ONE) //antimatter - front to back
+        else
+            gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA) //back to front - depth *= -1
 
         gl.useProgram(this.program)
         gl.bindVertexArray(this.vao)
@@ -218,7 +222,7 @@ export class RenderSplats {
         let sizeList = new Int32Array(this.vertexCount)
         for (let i = 0; i < this.vertexCount; i++) {
             let depth = ((x * buffer_f32[8 * i + 0] + y * buffer_f32[8 * i + 1] + z * buffer_f32[8 * i + 2]) * 4096) | 0
-            sizeList[i] = depth
+            sizeList[i] = this.isFront2Back ? depth : -depth
             if (depth > maxDepth) maxDepth = depth
             if (depth < minDepth) minDepth = depth
         }

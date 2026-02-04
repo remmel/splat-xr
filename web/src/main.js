@@ -26,9 +26,10 @@ async function main() {
 
 
 
-     // const url = 'ds/axis.splat'
+      const url = 'ds/axis.splat'
 //    const url = 'https://huggingface.co/cakewalk/splat-data/resolve/main/train.splat'
-     const url = 'ds/train.splat'
+//     const url = 'ds/tmp/train.splat'
+//    const url = 'ds/tmp/gs_garden_mipnerf360_vr.splat'
 
     let xrSession = null;
     let xrReferenceSpace = null;
