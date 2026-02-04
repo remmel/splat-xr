@@ -57,11 +57,7 @@ mat3 quat_to_mat3(vec4 q) {
 
 mat3 computeCov3D(vec4 quaternion, vec3 scale) {
     mat3 R = quat_to_mat3(quaternion);
-    mat3 S = mat3(
-        scale.x, 0.0, 0.0,
-        0.0, scale.y, 0.0,
-        0.0, 0.0, scale.z
-    );
+    mat3 S = mat3(/*r0*/scale.x, 0.0, 0.0,/*r1*/0.0, scale.y, 0.0, /*r2*/0.0, 0.0, scale.z);
     mat3 M = R * S;
     mat3 cov3d = M * transpose(M);
     return cov3d;
@@ -235,9 +231,8 @@ class SplatsRendererGlGeo:
             indices = np.arange(len(self.positions), dtype=np.uint32)
         else:
             positions_v4 = np.hstack([self.positions, np.ones((len(self.positions), 1))])
-            cam = (viewProj @ positions_v4.T).T
-            depths = cam[:, 2]
-            indices = np.argsort(depths).astype(np.uint32)
+            pos2d = (viewProj @ positions_v4.T).T
+            indices = np.argsort(pos2d[:,2]).astype(np.uint32)
 
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.ebo)
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.nbytes, indices, GL_DYNAMIC_DRAW)

@@ -2,6 +2,7 @@ import math
 
 import numpy as np
 import matplotlib
+from pyglm.glm import inverse, perspective, radians, translate, mat4, vec3, rotate
 
 from SplatsRendererGlGeo import SplatsRendererGlGeo
 from SplatsRendererGl import SplatsRendererGl
@@ -12,9 +13,9 @@ from SplatsRendererVkGeo import SplatsRendererVkGeo
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 from PIL import Image
-import glm
+from pyglm import glm
 
-from SplatsRenderer import SplatsRenderer
+from SplatsRendererNp import SplatsRendererNp
 from SplatsRendererLoop import SplatsRendererLoop
 from utils import create_projection_matrix, timer
 
@@ -38,7 +39,7 @@ def get_view_proj_using_glm(w, h, f):
 
     proj1 = create_projection_matrix(f, f, w, h)
 
-    # proj2 = glm.perspective(f, w/h, 0.2, 200.0)
+    # proj2 = perspective(f, w/h, 0.2, 200.0)
     # proj = glm_to_numpy(proj2)
     # proj3 = (np.eye(4) * proj2).T
     # proj4 = glm_to_numpy(proj2).T
@@ -48,14 +49,10 @@ def get_view_proj_matrix_antimatter():
         [1, 0, 0, 0],
         [0, 1, 0, 0],
         [0, 0, 1, 0],
-        [0, 0.1, 3, 1]
+        [0, .1, 3, 1]
     ])
 
-    assert np.allclose(view_antimatter, np.array(glm.translate(glm.mat4(1.0), glm.vec3(0.0, 0.1, 3.0))).T)
-
-    # view_glm = glm.translate(glm.mat4(1.0), glm.vec3(0.0, 0.1, 3.0))
-    # view_glm = glm.rotate(view_glm, glm.radians(-30.0), glm.vec3(0.0, 1.0, 0.0))
-    # view_antimatter = np.array(view_glm).T
+    assert np.allclose(view_antimatter, np.array(translate(mat4(1.0), vec3(0.0, 0.1, 3.0))).T)
 
     proj_antimatter = np.array([
         [2., 0., 0., 0., ],
@@ -66,36 +63,58 @@ def get_view_proj_matrix_antimatter():
 
     wfov = math.atan((w/2)/f) * 2
     print(f"Camera {w}x{h} wfov={math.degrees(wfov):.1f}°")
-    # proj2 = glm.perspectiveLH_NO(fov, w / float(h), 0.2, 200.0)
+    # proj_antimatter = np.array(glm.perspectiveLH_NO(wfov, w / float(h), 0.2, 200.0)).T
     # flip y
 
     return view_antimatter, proj_antimatter
+
+#def get_view_proj_matrix():
+
+def get_view_proj_matrix_garden():
+    # correct view, (need to invert -f.y) eg glUniform2f(self.uFocalLoc, f, -f)
+    proj = perspective(radians(80.0), w / h, 0.2, 200.0)
+
+    # view = glm.lookAt(vec3(0,1.5,1), vec3(0,1,0), vec3(0,1,0))
+    view = inverse(translate(mat4(1.0), vec3(0.0, 1.5, 0.0)))
+    model = rotate(mat4(1), radians(180), vec3(0, 0, 1))
+
+    fx = proj[0][0] * w / 2
+    # fy = -proj[1][1] * h / 2
+
+    # because of antimatter different order, and I don't want to change Jacobian calculation everywhere (keep it like antimatter)
+    proj = glm.scale(glm.mat4(1.0), glm.vec3(1.0, -1.0, 1.0)) * proj #proj[1][1] *= -1 #flip y and more..
+    view = glm.scale(glm.mat4(1.0), glm.vec3(1.0, -1.0, 1.0)) * view
+
+    return np.array(view * model).T, np.array(proj).T, fx
+
 
 
 if __name__ == "__main__":
 
     splatAxis = "../web/public/ds/axis.splat"
-    splatTrain = "../web/public/ds/train.splat" # https://huggingface.co/cakewalk/splat-data/resolve/main/train.splat
+    splatTrain = "../web/public/ds/tmp/train.splat" # https://huggingface.co/cakewalk/splat-data/resolve/main/train.splat
+    splatGarden = "../web/public/ds/tmp/gs_garden_mipnerf360_vr.splat" # https://www.metalograms.com/ftp/gs/gs_garden_mipnerf360_vr.splat
 
-
-    w, h, f = 1000, 1000, 1000
+    w, h, f = 1024, 1024, 1000
 
     # choose which splat file to use
-    splat, fn = splatAxis, 'axis'
+    # splat, fn = splatAxis, 'axis'
     # splat, fn = splatTrain, 'train'
+    splat, fn = splatGarden, 'garden'
 
     # choose which render to use
     # renderer, fn_render, og = SplatsRendererLoop(splat), "loop", False
-    # renderer, fn_render, og = SplatsRenderer(splat), "vect", False
+    # renderer, fn_render, og = SplatsRendererNp(splat), "np", False
     # renderer, fn_render, og = SplatsRendererGl(splat, w, h), "gl", True
-    # renderer, fn_render, og = SplatsRendererGlGeo(splat, w, h), "glgeo", True
+    renderer, fn_render, og = SplatsRendererGlGeo(splat, w, h), "glgeo", True
     # renderer, fn_render, og = SplatsRendererGlGeoConic(splat, w, h), "glgeoconic", True
     # renderer, fn_render, og = SplatsRendererGlNoVertexSh(splat, w, h), "glnovertex", True
-    renderer, fn_render, og = SplatsRendererVkGeo(splat, w, h), "vkgeo", True
+    # renderer, fn_render, og = SplatsRendererVkGeo(splat, w, h), "vkgeo", True
 
     output = f"test/{fn}_{fn_render}.png"
 
-    view, proj = get_view_proj_matrix_antimatter()
+    # view, proj = get_view_proj_matrix_antimatter()
+    view, proj, f = get_view_proj_matrix_garden()
 
     # TODO keep only one version
     if not og:

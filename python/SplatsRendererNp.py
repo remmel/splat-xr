@@ -4,7 +4,7 @@ from tqdm import tqdm
 from utils import load_splat_file, remove_alpha
 
 
-class SplatsRenderer:
+class SplatsRendererNp:
     def __init__(self, splat_file_path):
         self.points = load_splat_file(splat_file_path)
 
@@ -72,13 +72,13 @@ class SplatsRenderer:
                 (pos2d[:, 1] < -clip) |  # y < -clip
                 (pos2d[:, 1] > clip)  # y > clip
         )
+        # in_frustum[np.random.rand(in_frustum.shape[0]) < 0.995] = False #keep only 0.5% of the splats
         # in_frustum[:] = False
         # in_frustum[928310] = True
         print(f"{np.sum(in_frustum):,}/{len(in_frustum):,} in frustum")
 
         # Update arrays to only include valid points
-        positions, scales, rots, colors = positions[in_frustum], scales[in_frustum], rots[in_frustum], colors[
-            in_frustum]
+        positions, scales, rots, colors = positions[in_frustum], scales[in_frustum], rots[in_frustum], colors[in_frustum]
         pos2d, cam = pos2d[in_frustum], cam[in_frustum]
 
         vrks = self.compute_cov3d(scales, rots)  # (n,3,3)}
@@ -93,7 +93,13 @@ class SplatsRenderer:
 
         img_rgba = np.zeros((h, w, 4), dtype=np.float32)  # Setup rendering buffers
 
-        indices = np.argsort(cam[:, 2])  # Sort by depth
+        debug_contribution_map = np.zeros((h, w), dtype=np.float32)
+        debug_contribution_map_ellipsis = np.zeros((h, w), dtype=np.float32)
+        debug_contribution_map_rect_aabb = np.zeros((h, w), dtype=np.float32) #not squared like Inria
+        debug_contribution_map_unvisible = np.zeros((h, w), dtype=np.float32)
+        # TODO add contribution_map_rect_obb and contribution_map_rect_aabb_squared
+
+        indices = np.argsort(pos2d[:, 2])  # Sort by depth
         # indices = np.arange(0, len(depths))
         # indices[0] == 100053
 
@@ -101,8 +107,7 @@ class SplatsRenderer:
         axes_01 = (abs(major_axis) + abs(minor_axis)) / uViewport  # from px to [0,1]
         rect_min_ndc = center_ndc + -4 * axes_01  # [-1,1]
         rect_max_ndc = center_ndc + +4 * axes_01  # [-1,1]
-        rect_min_px, rect_max_px = ndc_to_px(rect_min_ndc, uViewport).astype(int), ndc_to_px(rect_max_ndc,
-                                                                                             uViewport).astype(int)
+        rect_min_px, rect_max_px = ndc_to_px(rect_min_ndc, uViewport).astype(int), ndc_to_px(rect_max_ndc, uViewport).astype(int)
         rect_min_px, rect_max_px = np.maximum(0, rect_min_px), np.minimum(uViewport, rect_max_px)
         rect_size_px = rect_max_px - rect_min_px
 
@@ -132,12 +137,9 @@ class SplatsRenderer:
 
             # rotated rect
             major_axis_length, minor_axis_length = np.linalg.norm(major_axis[idx]), np.linalg.norm(minor_axis[idx])
-            major_axis_normalized, minor_axis_normalized = major_axis[idx] / major_axis_length, minor_axis[
-                idx] / minor_axis_length
-            dx = (delta_px[:, :, 0] * major_axis_normalized[0] + delta_px[:, :, 1] * major_axis_normalized[
-                1]) / major_axis_length
-            dy = (delta_px[:, :, 0] * minor_axis_normalized[0] + delta_px[:, :, 1] * minor_axis_normalized[
-                1]) / minor_axis_length
+            major_axis_normalized, minor_axis_normalized = major_axis[idx] / major_axis_length, minor_axis[idx] / minor_axis_length
+            dx = (delta_px[:, :, 0] * major_axis_normalized[0] + delta_px[:, :, 1] * major_axis_normalized[1]) / major_axis_length
+            dy = (delta_px[:, :, 0] * minor_axis_normalized[0] + delta_px[:, :, 1] * minor_axis_normalized[1]) / minor_axis_length
 
             assert dx.shape == rect_shape and dy.shape == rect_shape
             A = dx ** 2 + dy ** 2
@@ -165,11 +167,17 @@ class SplatsRenderer:
                 # Perform blending for valid pixels
                 # gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.ONE) #antimatter
                 # dst  = src * (1-dst_a) + dst * 1 <=> dst += src * (1-dst_a)
-                region_rgba[x_idcs, y_idcs] += src_rgba[x_idcs, y_idcs] * (
-                            1 - region_rgba[x_idcs, y_idcs, 3, np.newaxis])
+                region_rgba[x_idcs, y_idcs] += src_rgba[x_idcs, y_idcs] * (1 - region_rgba[x_idcs, y_idcs, 3, np.newaxis])
 
             # Update the original arrays
+            # region_rgba = np.broadcast_to(np.append(np.random.rand(3), 1.0), region_rgba.shape) #put random color for debug purpose
             img_rgba[min_y_px:max_y_px, min_x_px:max_x_px] = region_rgba
+
+            #pixels contribution
+            debug_contribution_map[min_y_px:max_y_px, min_x_px:max_x_px] += blend_mask #356
+            debug_contribution_map_rect_aabb[min_y_px:max_y_px, min_x_px:max_x_px]+= 1.0 #1093
+            debug_contribution_map_ellipsis[min_y_px:max_y_px, min_x_px:max_x_px] += mask #A <= 4.0 #397
+            debug_contribution_map_unvisible[min_y_px:max_y_px, min_x_px:max_x_px] += ~blend_mask #1006
 
         img_rgba = np.flipud(img_rgba)  # upside down
         img_rgb = img_rgba[:, :, :3]

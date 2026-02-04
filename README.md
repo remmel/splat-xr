@@ -49,6 +49,6 @@ How can we explain that pre-multiplying the rgb * a in the fragment boost the fp
 Conic version is the one used by INRIA and antimatter uses a more optimized version where "fragment is rotated".
 In the image, in green the splat (without the gaussian opacity) and:
 - in blue the fragment of the conic version (aligned with axis)  
-- in pink the fragment of the antimatter version (rotated)  
+- in pink the fragment of the antimatter version (rotated - OBB)  
 - in gray the fragment of the antimatter un-rotated version, I implemented in webgl and python 
 ![antimattervsconic.png](doc/antimattervsconic.png)
