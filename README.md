@@ -1,9 +1,10 @@
-# splat
+# Gaussian Splat viewer/renderer implementations
 
 The objective of that repository is to implement multiple versions of 3D Gaussian Splatting renderer for learning purposes.
 I started from antimatter webgl implementation, I migrated.
+I want to make sur that the axis and garden ply are always render the same across the implementations.
 
-Implementations `SplatsRendererX.py`:
+Python implementations `SplatsRendererX.py`:
 - `Gl` : the closest from the antimatter webgl viewer (using texture)
 - `GlGeo` : Opengl (using geometry shader) 📌
 - `GlGeoConic` : Opengl conic (vs eigenvectors)
@@ -12,14 +13,39 @@ Implementations `SplatsRendererX.py`:
 - `Np` : CPU using Numpy (~1min for the garden)
 - `Vk` : Vulkan (using geometry shader)
 
-Here, we want to make sur that the axis and garden ply are always render the same accross the implementations.
+Web implementations:
+- `webgl`: WebGL (+XR)
+- `webgpu`: WebGPU
 
+# Run
+
+## WebGL
 To run the js webgl viewer:
 ```shell
 cd web
 npm install
 npm run dev
 ```
+```js
+//main.js
+const url = 'ds/tmp/mysplat.splat' //change or not the splat
+```
+
+## WebGPU
+
+To run the js webgpu viewer:
+```shell
+cd web
+npm install
+npm run dev
+ln -s ../web/public public #to share .ply/.splat files web the webgl project
+```
+```typescript
+//main.ts
+const url = 'ds/tmp/mysplat.splat' //change or not the splat
+```
+
+## Python
 
 To run the python viewers:
 ```shell

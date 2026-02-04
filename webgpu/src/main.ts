@@ -1,7 +1,7 @@
 import { mat4, vec3 } from 'wgpu-matrix';
 import { quitIfWebGPUNotAvailable } from './util';
 import {RenderSplat} from "./RenderSplat.ts";
-import {Interactions} from "../../web/src/interactions.js"
+import {Interactions} from "../../web/src/Interactions.js"
 import {Fps} from "./utils";
 
 const canvas = document.querySelector('canvas') as HTMLCanvasElement;
@@ -14,7 +14,11 @@ const adapter = await navigator.gpu?.requestAdapter({
 });
 
 if(!adapter) throw new Error('adapter is null');
-const device = await adapter.requestDevice();
+const device = await adapter.requestDevice({
+    requiredLimits: {
+        maxStorageBuffersInVertexStage: adapter.limits.maxStorageBuffersInVertexStage,
+    },
+});
 quitIfWebGPUNotAvailable(adapter, device);
 console.log(adapter.info)
 
@@ -51,8 +55,11 @@ const renderPassDescriptor: GPURenderPassDescriptor = {
 };
 
 const renderSplat = new RenderSplat(device, presentationFormat, depthFormat);
-// renderSplat.fetch('tmp/gs_Emma_26fev_converted_by_kwok.splat')
-renderSplat.fetch('tmp/axis.splat')
+// const url = 'ds/tmp/gs_garden_mipnerf360_vr.splat'
+// const url = 'ds/tmp/gs_Emma_26fev_converted_by_kwok.splat'
+const url = 'ds/axis.splat'
+renderSplat.fetch(url)
+
 
 const viewport = {w, h} //{w:canvas.width, h:canvas.height};
 // const aspect = canvas.width / canvas.height;
