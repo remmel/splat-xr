@@ -20,30 +20,6 @@ from SplatsRendererLoop import SplatsRendererLoop
 from utils import create_projection_matrix, timer
 
 
-def get_view_proj_using_glm(w, h, f):
-    view_matrix = np.eye(4)  # Identity matrix for testing
-
-    # view_matrix = np.array([ #//perspectiveLH_NO
-    #     [1, 0, 0, 0],
-    #     [0, 1, 0, 0],
-    #     [0, 0, 1, 3],
-    #     [0, 0, 0, 1]
-    # ])
-
-    # view_matrix = np.array([
-    #     [1, 0, 0, 0],
-    #     [0, -1, 0, 0],
-    #     [0, 0, -1, -3],
-    #     [0, 0, 0, 1]
-    # ])
-
-    proj1 = create_projection_matrix(f, f, w, h)
-
-    # proj2 = perspective(f, w/h, 0.2, 200.0)
-    # proj = glm_to_numpy(proj2)
-    # proj3 = (np.eye(4) * proj2).T
-    # proj4 = glm_to_numpy(proj2).T
-
 def get_view_proj_matrix_antimatter():
     view_antimatter = np.array([
         [1, 0, 0, 0],
@@ -106,10 +82,10 @@ if __name__ == "__main__":
     # renderer, fn_render, og = SplatsRendererLoop(splat), "loop", False
     # renderer, fn_render, og = SplatsRendererNp(splat), "np", False
     # renderer, fn_render, og = SplatsRendererGl(splat, w, h), "gl", True
-    renderer, fn_render, og = SplatsRendererGlGeo(splat, w, h), "glgeo", True
+    # renderer, fn_render, og = SplatsRendererGlGeo(splat, w, h), "glgeo", True
     # renderer, fn_render, og = SplatsRendererGlGeoConic(splat, w, h), "glgeoconic", True
     # renderer, fn_render, og = SplatsRendererGlNoVertexSh(splat, w, h), "glnovertex", True
-    # renderer, fn_render, og = SplatsRendererVkGeo(splat, w, h), "vkgeo", True
+    renderer, fn_render, og = SplatsRendererVkGeo(splat, w, h), "vkgeo", True
 
     output = f"test/{fn}_{fn_render}.png"
 

@@ -66,6 +66,18 @@ mat3 computeCov3D(vec4 quaternion, vec3 scale) {
     return cov3d;
 }
 
+vec3 computeCov2D(vec4 cam, mat3 Vrk, mat4 view, vec2 focal) {
+    mat3 J = mat3(
+        focal.x / cam.z, 0., -(focal.x * cam.x) / (cam.z * cam.z),
+        0., -focal.y / cam.z, (focal.y * cam.y) / (cam.z * cam.z),
+        0., 0., 0.
+    );
+
+    mat3 T = transpose(mat3(view)) * J;
+    mat3 cov2d = transpose(T) * Vrk * T;
+    return vec3(cov2d[0][0], cov2d[0][1], cov2d[1][1]); //a,b,d
+}
+
 void main() {
     vec4 center = vec4(gs_in[0].center, 1.0);
     vec3 scale = gs_in[0].scale;
@@ -83,39 +95,26 @@ void main() {
 
     mat3 Vrk = 4.0 * computeCov3D(rotation, scale);
 
+    vec3 cov = computeCov2D(cam, Vrk, ubo.view, ubo.focal);
 
-    mat3 J = mat3(
-        ubo.focal.x / cam.z, 0., -(ubo.focal.x * cam.x) / (cam.z * cam.z),
-        0., -ubo.focal.y / cam.z, (ubo.focal.y * cam.y) / (cam.z * cam.z),
-        0., 0., 0.
-    );
-
-    mat3 T = transpose(mat3(ubo.view)) * J;
-    mat3 cov2d = transpose(T) * Vrk * T;
-
-    float mid = (cov2d[0][0] + cov2d[1][1]) / 2.0;
-    float radius = length(vec2((cov2d[0][0] - cov2d[1][1]) / 2.0, cov2d[0][1]));
+    float mid = (cov.x + cov.z) / 2.0;
+    float radius = length(vec2((cov.x - cov.z) / 2.0, cov.y));
     float lambda1 = mid + radius, lambda2 = mid - radius;
 
     if(lambda2 < 0.0) return;
-    vec2 diagonalVector = normalize(vec2(cov2d[0][1], lambda1 - cov2d[0][0]));
+    vec2 diagonalVector = normalize(vec2(cov.y, lambda1 - cov.x));
     vec2 majorAxis = min(sqrt(2.0 * lambda1), 1024.0) * diagonalVector; //in pixel
     vec2 minorAxis = min(sqrt(2.0 * lambda2), 1024.0) * vec2(diagonalVector.y, -diagonalVector.x);
 
     gColor = color;
     vec2 vCenter = vec2(pos2d) / pos2d.w;
 
-    vec2 quad[4] = vec2[](
-        vec2(-2.0, -2.0),
-        vec2( 2.0, -2.0),
-        vec2(-2.0,  2.0),
-        vec2( 2.0,  2.0)
-    );
+    vec2 quad[4] = vec2[](vec2(-1.0, -1.0), vec2( 1.0, -1.0), vec2(-1.0,  1.0), vec2( 1.0,  1.0));
 
     for (int i = 0; i < 4; i++) {
         gColor = color; //it must be in the loop when using my RTX :s
-        gPosition = quad[i];
-        gl_Position = vec4(vCenter + (quad[i].x * majorAxis + quad[i].y * minorAxis) / ubo.viewport, 0.0, 1.0);
+        gPosition = quad[i] * 2.0;
+        gl_Position = vec4(vCenter + (gPosition.x * majorAxis + gPosition.y * minorAxis) / ubo.viewport, 0.0, 1.0);
         gl_Position.y = -gl_Position.y; //flip y for vulkan
         EmitVertex();
     }

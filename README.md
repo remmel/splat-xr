@@ -1,13 +1,18 @@
 # splat
 
-The objective of that repository is for learning purposes duplicate the antimatter webgl viewer.
-Implementations using:
-- Opengl (using geometry shader)
-- Vulkan (using geometry shader)
-- Opengl conic (vs eigenvectors)
-- python numpy
-- python loop
+The objective of that repository is to implement multiple versions of 3D Gaussian Splatting renderer for learning purposes.
+I started from antimatter webgl implementation, I migrated.
 
+Implementations `SplatsRendererX.py`:
+- `Gl` : the closest from the antimatter webgl viewer (using texture)
+- `GlGeo` : Opengl (using geometry shader) 📌
+- `GlGeoConic` : Opengl conic (vs eigenvectors)
+- `GlNoVertexSh` : Hybrid: Numpy for the projection - OpenGL for the rasterization
+- `Loop` : CPU looping
+- `Np` : CPU using Numpy (~1min for the garden)
+- `Vk` : Vulkan (using geometry shader)
+
+Here, we want to make sur that the axis and garden ply are always render the same accross the implementations.
 
 To run the js webgl viewer:
 ```shell

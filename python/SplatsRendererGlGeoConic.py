@@ -67,6 +67,18 @@ mat3 computeCov3D(vec4 quaternion, vec3 scale) {
     return M * transpose(M);
 }
 
+vec3 computeCov2D(vec4 cam, mat3 Vrk, mat4 view, vec2 focal) {
+    mat3 J = mat3(
+        focal.x / cam.z, 0., -(focal.x * cam.x) / (cam.z * cam.z),
+        0., -focal.y / cam.z, (focal.y * cam.y) / (cam.z * cam.z),
+        0., 0., 0.
+    );
+
+    mat3 T = transpose(mat3(view)) * J;
+    mat3 cov2d = transpose(T) * Vrk * T;
+    return vec3(cov2d[0][0], cov2d[0][1], cov2d[1][1]); //a,b,d
+}
+
 void main() {
     vec4 center = vec4(gs_in[0].center, 1.0);
     vec3 scale = gs_in[0].scale;
@@ -83,22 +95,12 @@ void main() {
     }
 
     mat3 Vrk = computeCov3D(rotation, scale);
+    
+    vec3 cov = computeCov2D(cam, Vrk, uView, uFocal); //a,b,d
 
-    mat3 J = mat3(
-        uFocal.x / cam.z, 0., -(uFocal.x * cam.x) / (cam.z * cam.z),
-        0., -uFocal.y / cam.z, (uFocal.y * cam.y) / (cam.z * cam.z),
-        0., 0., 0.
-    );
+    float det = cov.x * cov.z - cov.y * cov.y; //ad-b²
 
-    mat3 T = transpose(mat3(uView)) * J;
-    mat3 cov2d = transpose(T) * Vrk * T;
-
-    vec3 cov = vec3(cov2d[0][0], cov2d[0][1], cov2d[1][1]);
-
-    float det = cov.x * cov.z - cov.y * cov.y;
-
-    if (det == 0.0)
-        return;
+    if (det == 0.0) return;
 
     float det_inv = 1.0 / det;
     vConic = vec3(cov.z * det_inv, -cov.y * det_inv, cov.x * det_inv);
@@ -109,12 +111,7 @@ void main() {
 
     gColor = color;
 
-    vec2 quads[4] = vec2[](
-        vec2(-1.0, -1.0),
-        vec2(1.0, -1.0),
-        vec2(-1.0, 1.0),
-        vec2(1.0, 1.0)
-    );
+    vec2 quads[4] = vec2[](vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0), vec2(1.0, 1.0));
 
     for (int i = 0; i < 4; i++) {
         vec2 quad = quads[i];
@@ -122,7 +119,6 @@ void main() {
         vCoordxy = quad * quadwh_scr;
         EmitVertex();
     }
-
     EndPrimitive();
 }
 """

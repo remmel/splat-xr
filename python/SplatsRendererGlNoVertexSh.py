@@ -244,7 +244,7 @@ class SplatsRendererGlNoVertexSh:
             vCenter,
         ]).astype(np.float32)
 
-        indices = np.argsort(cam[:, 2])
+        indices = np.argsort(pos2d[:, 2])
         vertex_data = vertex_data[indices]  # sort items
 
         glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
